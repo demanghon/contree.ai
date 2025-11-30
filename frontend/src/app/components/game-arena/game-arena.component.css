@@ -1,0 +1,249 @@
+.game-arena {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    width: 100vw;
+    background-color: #2c3e50;
+    overflow: hidden;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.game-table {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle, #4db6ac 0%, #00897b 100%);
+    /* Teal gradient */
+    box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.5);
+}
+
+/* --- UI Elements --- */
+
+.ui-button {
+    position: absolute;
+    background: linear-gradient(to bottom, #4db6ac, #00796b);
+    color: white;
+    border: 2px solid #80cbc4;
+    border-radius: 10px;
+    padding: 10px 20px;
+    font-weight: bold;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+    text-transform: uppercase;
+}
+
+.last-trick-btn {
+    top: 40px;
+    left: 40px;
+    width: 120px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+.home-btn {
+    bottom: 40px;
+    left: 40px;
+    width: 60px;
+    height: 60px;
+    border-radius: 15px;
+    font-size: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.action-btn-group {
+    position: absolute;
+    bottom: 40px;
+    right: 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.action-btn {
+    width: 60px;
+    height: 60px;
+    background: linear-gradient(to bottom, #4db6ac, #00796b);
+    border: 2px solid #80cbc4;
+    border-radius: 15px;
+    color: white;
+    font-size: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.scoreboard {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background-color: #004d40;
+    border: 2px solid #80cbc4;
+    border-radius: 10px;
+    width: 150px;
+    color: white;
+    overflow: hidden;
+}
+
+.score-header {
+    background-color: #00695c;
+    padding: 5px;
+    text-align: center;
+    font-weight: bold;
+}
+
+.score-body {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 10px;
+    background-color: #b2dfdb;
+    color: #004d40;
+    font-weight: bold;
+}
+
+.score-values {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 10px;
+    font-weight: bold;
+    font-size: 1.2em;
+}
+
+/* --- Center Area --- */
+
+.center-mat {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 400px;
+    height: 300px;
+    border: 3px double #004d40;
+    border-radius: 20px;
+    opacity: 0.3;
+}
+
+.played-card {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80px;
+    height: 120px;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 2em;
+    color: #c0392b;
+    /* Example red suit */
+}
+
+/* --- Players --- */
+
+.player-position {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    z-index: 10;
+}
+
+.player-north {
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.player-east {
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.player-west {
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+/* South is handled differently for the hand */
+
+.avatar-container {
+    position: relative;
+    margin-bottom: -15px;
+    /* Overlap with nametag */
+    z-index: 2;
+}
+
+.avatar {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    border: 3px solid #b2dfdb;
+    background-color: #ddd;
+    /* Placeholder */
+    overflow: hidden;
+}
+
+.avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.nametag {
+    background: linear-gradient(to bottom, #5d4037, #3e2723);
+    /* Brown wood-like */
+    color: white;
+    padding: 5px 20px;
+    border-radius: 15px;
+    border: 2px solid #a1887f;
+    font-weight: bold;
+    font-size: 0.9em;
+    z-index: 3;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* --- Cards --- */
+
+.opponent-hand {
+    display: flex;
+    margin-top: 5px;
+}
+
+.player-hand {
+    position: absolute;
+    bottom: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: flex-end;
+    height: 150px;
+}
+
+/* Card overlap adjustment for hand */
+.player-hand app-card {
+    margin-left: -40px;
+}
+
+.player-hand app-card:first-child {
+    margin-left: 0;
+}
+
+.opponent-hand app-card {
+    margin-left: -25px;
+}
+
+.opponent-hand app-card:first-child {
+    margin-left: 0;
+}

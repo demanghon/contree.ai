@@ -1,0 +1,79 @@
+{
+    "name": "frontend",
+    "$schema": "../node_modules/nx/schemas/project-schema.json",
+    "projectType": "application",
+    "sourceRoot": "frontend/src",
+    "prefix": "app",
+    "targets": {
+        "build": {
+            "executor": "@angular/build:application",
+            "options": {
+                "outputPath": "dist/frontend",
+                "index": "frontend/src/index.html",
+                "browser": "frontend/src/main.ts",
+                "polyfills": [
+                    "zone.js"
+                ],
+                "tsConfig": "frontend/tsconfig.app.json",
+                "assets": [
+                    {
+                        "glob": "**/*",
+                        "input": "frontend/public"
+                    }
+                ],
+                "styles": [
+                    "frontend/src/styles.css"
+                ],
+                "scripts": []
+            },
+            "configurations": {
+                "production": {
+                    "budgets": [
+                        {
+                            "type": "initial",
+                            "maximumWarning": "500kB",
+                            "maximumError": "1MB"
+                        },
+                        {
+                            "type": "anyComponentStyle",
+                            "maximumWarning": "4kB",
+                            "maximumError": "8kB"
+                        }
+                    ],
+                    "outputHashing": "all"
+                },
+                "development": {
+                    "optimization": false,
+                    "extractLicenses": false,
+                    "sourceMap": true
+                }
+            },
+            "defaultConfiguration": "production"
+        },
+        "serve": {
+            "executor": "@angular/build:dev-server",
+            "options": {
+                "buildTarget": "frontend:build"
+            },
+            "configurations": {
+                "production": {
+                    "buildTarget": "frontend:build:production"
+                },
+                "development": {
+                    "buildTarget": "frontend:build:development"
+                }
+            },
+            "defaultConfiguration": "development"
+        },
+        "test": {
+            "executor": "@angular/build:unit-test",
+            "options": {
+                "polyfills": [
+                    "zone.js",
+                    "frontend/src/test.ts"
+                ],
+                "tsConfig": "frontend/tsconfig.spec.json"
+            }
+        }
+    }
+}

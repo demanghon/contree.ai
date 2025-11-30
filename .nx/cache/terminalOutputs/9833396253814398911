@@ -1,0 +1,9 @@
+
+[0m[7m[1m[31m NX [39m[22m[27m[0m  [31mCannot find module '@angular-devkit/core'[39m
+
+Require stack:
+- /home/demanghon/.gemini/antigravity/scratch/contree.ai/node_modules/nx/src/adapter/ngcli-adapter.js
+- /home/demanghon/.gemini/antigravity/scratch/contree.ai/node_modules/nx/src/command-line/run/run.js
+- /home/demanghon/.gemini/antigravity/scratch/contree.ai/node_modules/nx/bin/run-executor.js
+Pass --verbose to see the stacktrace.
+
