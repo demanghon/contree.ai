@@ -1,0 +1,24 @@
+{
+    "name": "coinche-runner",
+    "$schema": "../../node_modules/nx/schemas/project-schema.json",
+    "projectType": "application",
+    "sourceRoot": "apps/coinche-runner/src",
+    "implicitDependencies": [
+        "coinche-engine"
+    ],
+    "targets": {
+        "run": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "poetry run python src/main.py",
+                "cwd": "apps/coinche-runner"
+            },
+            "dependsOn": [
+                {
+                    "target": "develop",
+                    "projects": "dependencies"
+                }
+            ]
+        }
+    }
+}

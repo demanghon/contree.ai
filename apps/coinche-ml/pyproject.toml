@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "coinche-ml"
+version = "0.1.0"
+description = "ML pipeline for Coinche AI"
+authors = ["Jérôme Demanghon <demanghonj@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+torch = "^2.0.0"
+numpy = "^1.24.0"
+polars = "^0.19.0"
+pandas = "^2.0.0"
+pyarrow = "^14.0.0"
+tqdm = "^4.66.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,113 @@
+<div class="arena-container" *ngIf="rootNode">
+    <div class="main-area">
+        <div class="info-panel">
+            <div class="trump-info">
+                <strong>Trump:</strong> <span class="suit-symbol" [class.red]="isRedSuit(trump)">{{ formatTrump(trump)
+                    }}</span>
+            </div>
+            <div class="score-info">
+                <div><strong>Points (NS):</strong> {{ currentPoints.ns }} <span class="badge"
+                        [class.maximizing]="true">Maximizing</span></div>
+                <div><strong>Points (EW):</strong> {{ currentPoints.ew }} <span class="badge"
+                        [class.minimizing]="true">Minimizing</span></div>
+                <div><strong>Expected Final (NS):</strong> {{ scores }}</div>
+            </div>
+            <div class="turn-info">
+                Player {{ currentPlayer }}'s Turn
+            </div>
+            <div class="controls">
+                <button (click)="undo()" [disabled]="history.length === 0">Undo</button>
+                <button (click)="reset()">Reset</button>
+                <button (click)="requestNewGame.emit()" class="new-game-btn">Load New Game</button>
+            </div>
+        </div>
+
+        <div class="board">
+            <!-- North Player (Partner) -->
+            <div class="player north" [class.active]="currentPlayer === 2">
+                <div class="hand">
+                    <div class="card" *ngFor="let card of hands[2]" [class.red]="isRedSuit(card)">
+                        {{ formatCard(card) }}</div>
+                </div>
+                <div class="label">North (P2)</div>
+            </div>
+
+            <!-- West Player -->
+            <div class="player west" [class.active]="currentPlayer === 1">
+                <div class="hand vertical">
+                    <div class="card" *ngFor="let card of hands[1]" [class.red]="isRedSuit(card)">
+                        {{ formatCard(card) }}</div>
+                </div>
+                <div class="label">West (P1)</div>
+            </div>
+
+            <!-- Table / Trick -->
+            <div class="table">
+                <div class="trick-card" *ngFor="let card of currentTrick" [ngClass]="'pos-' + getPlayerFromCard(card)"
+                    [class.red]="isRedSuit(card)">
+                    {{ formatCard(getCardValue(card)) }}
+                </div>
+            </div>
+
+            <!-- East Player -->
+            <div class="player east" [class.active]="currentPlayer === 3">
+                <div class="hand vertical">
+                    <div class="card" *ngFor="let card of hands[3]" [class.red]="isRedSuit(card)">
+                        {{ formatCard(card) }}</div>
+                </div>
+                <div class="label">East (P3)</div>
+            </div>
+
+            <!-- South Player (You) -->
+            <div class="player south" [class.active]="currentPlayer === 0">
+                <div class="label">South (P0)</div>
+                <div class="hand">
+                    <div class="card" *ngFor="let card of hands[0]" [class.red]="isRedSuit(card)">
+                        {{ formatCard(card) }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="choices" *ngIf="currentNode && currentNode.children.length > 0">
+            <h4>Next Moves:</h4>
+            <div class="choice-list">
+                <button *ngFor="let child of currentNode.children; let i = index" (click)="selectChild(i)">
+                    Play {{ formatCard(child.card) }} (Score: {{ child.score }})
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="history-sidebar" *ngIf="pastTricks.length > 0">
+        <h4>Trick History</h4>
+        <div class="past-tricks">
+            <div class="past-trick" *ngFor="let trick of pastTricks; let i = index" (click)="jumpToTrick(trick)">
+                <div class="trick-header">
+                    <span class="trick-label">Trick {{ i + 1 }}</span>
+                    <div class="trick-scores">
+                        <div class="score-row">
+                            <span>Trick:</span>
+                            <span class="ns-score">NS: {{ trick.trickScore.ns }}</span>
+                            <span class="ew-score">EW: {{ trick.trickScore.ew }}</span>
+                        </div>
+                        <div class="score-row total">
+                            <span>Total:</span>
+                            <span class="ns-score">NS: {{ trick.cumulativeScore.ns }}</span>
+                            <span class="ew-score">EW: {{ trick.cumulativeScore.ew }}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="trick-cards">
+                    <div class="mini-card" *ngFor="let card of trick.cards" [class.red]="isRedSuit(card)">
+                        {{ formatCard(card.split(':')[1]) }}
+                        <span class="player-badge">P{{ card.split(':')[0].replace('P', '') }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div *ngIf="!rootNode" class="empty-state">
+    <p>Paste DOT content to start replay.</p>
+</div>

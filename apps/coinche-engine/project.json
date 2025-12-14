@@ -1,0 +1,54 @@
+{
+    "name": "coinche-engine",
+    "$schema": "../../node_modules/nx/schemas/project-schema.json",
+    "projectType": "application",
+    "sourceRoot": "apps/coinche-engine/src",
+    "targets": {
+        "build": {
+            "executor": "nx:run-commands",
+            "outputs": ["{projectRoot}/target"],
+            "options": {
+                "command": ". $HOME/.cargo/env && maturin build",
+                "cwd": "apps/coinche-engine"
+            }
+        },
+        "develop": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": ". $HOME/.cargo/env && maturin develop",
+                "cwd": "apps/coinche-engine"
+            }
+        },
+        "test": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "cargo test",
+                "cwd": "apps/coinche-engine"
+            }
+        },
+        "generate-bidding-data": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": ". $HOME/.cargo/env && maturin develop --release && python generate_datasets.py --gameplay-samples=0 --bidding-output=../../dist/datasets/bidding_data.parquet --bidding-samples={args.samples}",
+                "cwd": "apps/coinche-engine",
+                "samples": 5000000
+            }
+        },
+        "generate-gameplay-data": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": ". $HOME/.cargo/env && maturin develop --release && python generate_datasets.py --bidding-samples=0 --gameplay-output=../../dist/datasets/gameplay_data.parquet --gameplay-samples={args.samples}",
+                "cwd": "apps/coinche-engine",
+                "samples": 10000
+            }
+        },
+        "verify-dataset": {
+            "executor": "nx:run-commands",
+            "dependsOn": ["build"],
+            "options": {
+                "command": ". $HOME/.cargo/env && maturin develop --release && python verify_data_gen.py",
+                "cwd": "apps/coinche-engine"
+            }
+        }
+    }
+}

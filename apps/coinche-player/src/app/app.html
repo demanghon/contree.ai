@@ -1,0 +1,16 @@
+<div class="app-container">
+    <header>
+        <h1>Coinche Replay Player</h1>
+    </header>
+
+    <main>
+        <main>
+            <div class="input-section" *ngIf="!gameLoaded">
+                <textarea [(ngModel)]="dotInput" placeholder="Paste tree.dot content here..." rows="10"></textarea>
+                <button (click)="loadGame()" [disabled]="!dotInput">Load Game</button>
+            </div>
+
+            <app-game-arena *ngIf="gameLoaded" [dotContent]="dotInput" (requestNewGame)="resetGame()"></app-game-arena>
+        </main>
+    </main>
+</div>

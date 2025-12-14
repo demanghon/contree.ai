@@ -1,0 +1,17 @@
+[package]
+name = "coinche-engine"
+version = "0.1.0"
+edition = "2021"
+authors = ["Jérôme Demanghon <demanghonj@gmail.com>"]
+
+[lib]
+name = "coinche_engine"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.20.0", features = ["extension-module"] }
+parquet = "53.0"
+arrow = "53.0"
+rand = "0.8"
+rayon = "1.8"
+indicatif = { version = "0.17", features = ["rayon"] }
