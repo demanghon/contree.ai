@@ -138,6 +138,10 @@ pub fn write_bidding_parquet(filename: &str, hands: &[u32], scores: &[Vec<i16>])
     )
     .unwrap();
 
+    let path = std::path::Path::new(filename);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
     let file = File::create(filename).unwrap();
     let props = WriterProperties::builder().build();
     let mut writer = ArrowWriter::try_new(file, schema, Some(props)).unwrap();

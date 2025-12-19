@@ -33,7 +33,7 @@
                 "cwd": "apps/coinche-engine",
                 "samples": 50000,
                 "batchSize": 2000,
-                "threads": 0
+                "threads": 4
             }
         },
         "generate-gameplay-data": {
