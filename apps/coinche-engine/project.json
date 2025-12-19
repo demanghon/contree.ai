@@ -41,8 +41,8 @@
             "options": {
                 "command": ". $HOME/.cargo/env && maturin develop --release && python generate_datasets.py --bidding-samples=0 --gameplay-output=../../dist/datasets/gameplay_data.parquet --gameplay-samples={args.samples} --threads={args.threads}",
                 "cwd": "apps/coinche-engine",
-                "samples": 10000,
-                "threads": 0
+                "samples": 100000,
+                "threads": 1
             }
         },
         "verify-dataset": {

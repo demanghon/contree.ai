@@ -13,41 +13,54 @@ use std::sync::Arc;
 
 use super::common::generate_random_hands;
 
-struct GameplaySample {
-    hand: u32,
-    board: Vec<u8>,
-    history: u32,
-    trump: u8,
-    best_card: u8,
-    best_score: i16,
+// Phase 1 Output: Just the state snapshot
+pub struct RawGameplayState {
+    pub hands: [u32; 4], // ALL 4 hands
+    pub board: Vec<u8>,
+    pub history: u32,
+    pub trump: u8,
+    pub tricks_won: [u8; 2],
+    pub player: u8,
 }
 
-pub fn generate_gameplay_batch(
+// Phase 2 Output: The solved sample
+pub struct SolvedGameplaySample {
+    pub best_card: u8,
+    pub best_score: i16,
+    pub valid: bool, // If filtered out
+}
+
+pub fn generate_raw_gameplay_batch(
     batch_size: usize,
-) -> (Vec<u32>, Vec<Vec<u8>>, Vec<u32>, Vec<u8>, Vec<u8>, Vec<i16>) {
-    // Parallel generation using Rayon
-    let samples: Vec<GameplaySample> = (0..batch_size)
+) -> (
+    Vec<u32>,
+    Vec<Vec<u8>>,
+    Vec<u32>,
+    Vec<u8>,
+    Vec<Vec<u8>>,
+    Vec<u8>,
+) {
+    // Returns: (flattened_hands, boards, history, trumps, tricks_won_pair, current_player)
+
+    let states: Vec<RawGameplayState> = (0..batch_size)
         .into_par_iter()
-        .progress_count(batch_size as u64)
-        .map(|_| generate_single_sample())
-        .filter_map(|s| s)
+        .map(|_| generate_single_raw_state())
         .collect();
 
-    // Unzip samples into separate vectors
-    let mut hands_data = Vec::with_capacity(samples.len());
-    let mut boards_data = Vec::with_capacity(samples.len());
-    let mut history_data = Vec::with_capacity(samples.len());
-    let mut trumps_data = Vec::with_capacity(samples.len());
-    let mut best_cards_data = Vec::with_capacity(samples.len());
-    let mut best_scores_data = Vec::with_capacity(samples.len());
+    let mut hands_data = Vec::with_capacity(batch_size * 4);
+    let mut boards_data = Vec::with_capacity(batch_size);
+    let mut history_data = Vec::with_capacity(batch_size);
+    let mut trumps_data = Vec::with_capacity(batch_size);
+    let mut tricks_won_data = Vec::with_capacity(batch_size);
+    let mut player_data = Vec::with_capacity(batch_size);
 
-    for s in samples {
-        hands_data.push(s.hand);
+    for s in states {
+        hands_data.extend_from_slice(&s.hands);
         boards_data.push(s.board);
         history_data.push(s.history);
         trumps_data.push(s.trump);
-        best_cards_data.push(s.best_card);
-        best_scores_data.push(s.best_score);
+        tricks_won_data.push(s.tricks_won.to_vec());
+        player_data.push(s.player);
     }
 
     (
@@ -55,12 +68,12 @@ pub fn generate_gameplay_batch(
         boards_data,
         history_data,
         trumps_data,
-        best_cards_data,
-        best_scores_data,
+        tricks_won_data,
+        player_data,
     )
 }
 
-fn generate_single_sample() -> Option<GameplaySample> {
+fn generate_single_raw_state() -> RawGameplayState {
     let mut rng = rand::thread_rng();
 
     // 1. Temporal Bias
@@ -95,7 +108,8 @@ fn generate_single_sample() -> Option<GameplaySample> {
                 }
             }
             if moves.is_empty() {
-                return None;
+                // Should not happen theoretically if logic correct
+                break;
             }
             let m = moves[rng.gen_range(0..moves.len())];
             state.play_card(m);
@@ -114,175 +128,66 @@ fn generate_single_sample() -> Option<GameplaySample> {
             }
         }
         if moves.is_empty() {
-            return None;
+            break;
         }
         let m = moves[rng.gen_range(0..moves.len())];
         state.play_card(m);
         history_mask |= 1 << m;
     }
 
-    if state.is_terminal() {
-        return None;
-    }
-
-    // 2. Critical Decision Filtering & Perturbation
-    // We need to evaluate all legal moves to find Best and SecondBest
-    let legal_moves_mask = state.get_legal_moves();
-    let mut moves_scores = Vec::new();
-
-    for i in 0..32 {
-        if (legal_moves_mask & (1 << i)) != 0 {
-            let mut next_state = state.clone();
-            next_state.play_card(i as u8);
-            let (score, _) = solve(&next_state, false);
-            moves_scores.push((i as u8, score));
+    // Capture board snapshot
+    let mut board = Vec::new();
+    for i in 0..4 {
+        if state.current_trick[i] != 0xFF {
+            board.push(state.current_trick[i]);
         }
     }
 
-    if moves_scores.len() < 2 {
-        // Forced move, skip
-        return None;
-    }
-
-    // Sort moves based on current player's objective
-    let is_maximizing = state.current_player % 2 == 0; // NS maximizes
-    if is_maximizing {
-        moves_scores.sort_by(|a, b| b.1.cmp(&a.1)); // Descending
-    } else {
-        moves_scores.sort_by(|a, b| a.1.cmp(&b.1)); // Ascending (minimize NS score)
-    }
-
-    let best_move = moves_scores[0].0;
-    let best_score = moves_scores[0].1;
-    let second_move = moves_scores[1].0;
-    let second_score = moves_scores[1].1;
-
-    let delta = (best_score - second_score).abs();
-
-    // 3. Perturbation (20% chance)
-    let perturbation = rng.gen_bool(0.2);
-
-    if perturbation {
-        // Play sub-optimal move (second best)
-
-        let mut perturbed_state = state.clone();
-        perturbed_state.play_card(second_move);
-
-        // Now we want to record this new state
-        // We need the optimal move from here
-        if perturbed_state.is_terminal() {
-            return None;
-        }
-
-        let (recovery_score, recovery_best_move) = solve(&perturbed_state, false);
-
-        // Prepare sample
-        let mut board = Vec::new();
-        for i in 0..4 {
-            if perturbed_state.current_trick[i] != 0xFF {
-                board.push(perturbed_state.current_trick[i]);
-            }
-        }
-
-        return Some(GameplaySample {
-            hand: perturbed_state.hands[perturbed_state.current_player as usize],
-            board,
-            history: history_mask | (1 << second_move),
-            trump: perturbed_state.trump,
-            best_card: recovery_best_move,
-            best_score: recovery_score,
-        });
-    } else {
-        // Normal Critical Filtering
-        // Keep only if delta > 0 (strictly better)
-        if delta == 0 {
-            return None;
-        }
-
-        // Prepare sample
-        let mut board = Vec::new();
-        for i in 0..4 {
-            if state.current_trick[i] != 0xFF {
-                board.push(state.current_trick[i]);
-            }
-        }
-
-        return Some(GameplaySample {
-            hand: state.hands[state.current_player as usize],
-            board,
-            history: history_mask,
-            trump: state.trump,
-            best_card: best_move,
-            best_score: best_score,
-        });
+    RawGameplayState {
+        hands: state.hands,
+        board,
+        history: history_mask,
+        trump: state.trump,
+        tricks_won: state.tricks_won,
+        player: state.current_player,
     }
 }
 
-pub fn write_gameplay_parquet(
-    path: &str,
-    hands: &[u32],
-    boards: &[Vec<u8>],
-    history: &[u32],
-    trumps: &[u8],
-    best_cards: &[u8],
-    best_scores: &[i16],
-) -> Result<(), Box<dyn std::error::Error>> {
-    let file = File::create(path)?;
-    let props = WriterProperties::builder().build();
+pub fn solve_gameplay_batch(
+    hands: Vec<u32>,
+    boards: Vec<Vec<u8>>,
+    history: Vec<u32>,
+    trumps: Vec<u8>,
+    tricks_won: Vec<Vec<u8>>,
+    players: Vec<u8>,
+) -> (Vec<u8>, Vec<i16>, Vec<bool>) {
+    // We iterate in parallel
+    let results: Vec<SolvedGameplaySample> = (0..hands.len())
+        .into_par_iter()
+        .map(|i| {
+            // Reconstruct State
+            // Note: We only have 'hand' of current player (u32), history (u32), trump.
+            // But to run solver, we need FULL state (all 4 hands).
+            // PROBLEM: In `generate_raw_state`, we threw away the other 3 hands!
+            // The solver is Double Dummy, it needs perfect information.
+            // If we only save "My Hand" + "History", we cannot reconstruct the opponent hands exactly as they were.
+            // We can reconstruct "A" potential deal consistent with history, but it won't be the same one.
+            // Does this matter?
+            // Yes. If we simulated a specific game, we should solve THAT specific game.
+            // If we regenerate random opponent hands now, they might be inconsistent or "easier/harder" than the original.
 
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("hand", DataType::UInt32, false),
-        Field::new(
-            "board",
-            DataType::List(Arc::new(Field::new("item", DataType::UInt8, true))),
-            false,
-        ),
-        Field::new("history", DataType::UInt32, false),
-        Field::new("trump", DataType::UInt8, false),
-        Field::new("best_card", DataType::UInt8, false),
-        Field::new("best_score", DataType::Int16, false),
-    ]));
+            // Correction: We MUST save all 4 hands in the raw state.
+            // Since we receive a `Vec<u32>` of hands here, let's assume we pass ALL 4 hands combined or similar.
+            // Or better, for Phase 1 <-> Phase 2, we just pass the full u32[4] hands.
 
-    let hand_array = UInt32Array::from(hands.to_vec());
-    let history_array = UInt32Array::from(history.to_vec());
-    let trump_array = UInt8Array::from(trumps.to_vec());
-    let best_card_array = UInt8Array::from(best_cards.to_vec());
+            // I will return invalid dummy result for now to indicate I need to refactor signatures in next step.
+            SolvedGameplaySample {
+                best_card: 0,
+                best_score: 0,
+                valid: false,
+            }
+        })
+        .collect();
 
-    // Flatten boards
-    let mut flattened_boards = Vec::new();
-    let mut offsets = Vec::new();
-    offsets.push(0);
-    for b in boards {
-        flattened_boards.extend_from_slice(b);
-        offsets.push(flattened_boards.len() as i32);
-    }
-    let values_array = UInt8Array::from(flattened_boards);
-    let offsets_buffer = arrow::buffer::Buffer::from_slice_ref(&offsets);
-
-    let boards_array = ListArray::new(
-        Arc::new(Field::new("item", DataType::UInt8, true)),
-        arrow::buffer::OffsetBuffer::new(offsets_buffer.into()),
-        Arc::new(values_array),
-        None,
-    );
-
-    let best_scores_array = arrow::array::Int16Array::from(best_scores.to_vec());
-
-    let batch = RecordBatch::try_new(
-        schema.clone(),
-        vec![
-            Arc::new(hand_array),
-            Arc::new(boards_array),
-            Arc::new(history_array),
-            Arc::new(trump_array),
-            Arc::new(best_card_array),
-            Arc::new(best_scores_array),
-        ],
-    )?;
-
-    let mut writer = ArrowWriter::try_new(file, schema, Some(props))?;
-    writer.write(&batch)?;
-    writer.close()?;
-
-    Ok(())
+    (vec![], vec![], vec![])
 }

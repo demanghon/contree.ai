@@ -3,7 +3,8 @@ mod game;
 mod solver;
 
 use data_gen::{
-    generate_hand_batch, solve_hand_batch, write_bidding_parquet, write_gameplay_parquet,
+    generate_hand_batch, generate_raw_gameplay_batch, solve_bidding_batch, solve_gameplay_batch,
+    solve_hand_batch, write_bidding_parquet, write_gameplay_parquet,
 };
 use game::GameState;
 use pyo3::exceptions::PyRuntimeError;
@@ -51,32 +52,33 @@ fn generate_bidding_data(path: String, num_samples: usize) -> PyResult<()> {
 }
 
 #[pyfunction]
-fn generate_gameplay_data(path: &str, num_samples: usize) -> PyResult<()> {
-    println!("Generating {} gameplay samples to {}...", num_samples, path);
-    let start = std::time::Instant::now();
+fn generate_raw_gameplay_batch(
+    num_samples: usize,
+) -> PyResult<(
+    Vec<u32>,
+    Vec<Vec<u8>>,
+    Vec<u32>,
+    Vec<u8>,
+    Vec<Vec<u8>>,
+    Vec<u8>,
+)> {
+    let (hands, boards, history, trumps, tricks_won, players) =
+        generate_raw_gameplay_batch(num_samples);
+    Ok((hands, boards, history, trumps, tricks_won, players))
+}
 
-    let (hands, boards, history, trumps, best_cards, best_scores) =
-        data_gen::generate_gameplay_batch(num_samples);
-
-    println!("Saving gameplay data to {}...", path);
-    write_gameplay_parquet(
-        path,
-        &hands,
-        &boards,
-        &history,
-        &trumps,
-        &best_cards,
-        &best_scores,
-    )
-    .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-
-    let duration = start.elapsed();
-    println!(
-        "Gameplay data generated in {:.2?}. Size: {} bytes",
-        duration,
-        std::fs::metadata(path)?.len()
-    );
-    Ok(())
+#[pyfunction]
+fn solve_gameplay_batch(
+    hands: Vec<u32>,
+    boards: Vec<Vec<u8>>,
+    history: Vec<u32>,
+    trumps: Vec<u8>,
+    tricks_won: Vec<Vec<u8>>,
+    players: Vec<u8>,
+) -> PyResult<(Vec<u8>, Vec<i16>, Vec<bool>)> {
+    let (best_cards, best_scores, valid) =
+        solve_gameplay_batch(hands, boards, history, trumps, tricks_won, players);
+    Ok((best_cards, best_scores, valid))
 }
 
 /// A Python module implemented in Rust.
@@ -86,6 +88,7 @@ fn coinche_engine(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(solve_game, m)?)?;
     m.add_function(wrap_pyfunction!(generate_bidding_hands, m)?)?;
     m.add_function(wrap_pyfunction!(solve_bidding_batch, m)?)?;
-    m.add_function(wrap_pyfunction!(generate_gameplay_data, m)?)?;
+    m.add_function(wrap_pyfunction!(generate_raw_gameplay_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(solve_gameplay_batch, m)?)?;
     Ok(())
 }
