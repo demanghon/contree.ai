@@ -1,6 +1,6 @@
 use crate::game::GameState;
 use crate::solver::solve;
-use arrow::array::{Int16Array, ListArray, UInt32Array, UInt8Array};
+use arrow::array::{ListArray, UInt32Array, UInt8Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use indicatif::ParallelProgressIterator;

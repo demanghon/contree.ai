@@ -47,6 +47,7 @@ Scripts for running simulations and benchmarks.
   ```
 - **Python 3.10+**: For Machine Learning and the Runner.
 - **Node.js & npm**: For the Nx build system.
+- **Maturin**: For Python bindings.
 - **Graphviz**: For visualization (optional).
   ```bash
   sudo apt install graphviz

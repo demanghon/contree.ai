@@ -204,6 +204,13 @@ fn minimax(
         return (state.points[0] as i16, 0xFF);
     }
 
+    // 0. Memory Safety Check
+    // If the TT gets too huge (> 5M items ~ 300MB-500MB), purge it to prevent OOM.
+    // This is a tradeoff: we lose cached positions (slower) but we don't crash.
+    if tt.len() > 5_000_000 {
+        tt.clear();
+    }
+
     // 1. Check TT
     let key = compute_hash(state);
     if let Some(entry) = tt.get(&key) {
@@ -225,75 +232,83 @@ fn minimax(
     let mut best_move = 0xFF;
     let is_maximizing = state.current_player % 2 == 0;
 
-    // Current points (to calculate future score)
-    // Actually, since we return TOTAL score, we don't need to subtract.
-    // But TT must store value independent of path?
-    // No, because points are additive. State includes points?
-    // If state includes points, then key is unique.
-    // But we want to merge states with same hands but different points.
-    // So TT should store `future_score`.
-    // `total_score = current_points + future_score`.
-    // `future_score = solve(...) - current_points`.
+    // Collect moves
+    let mut moves = Vec::with_capacity(8);
+    for i in 0..32 {
+        if (legal_moves_mask & (1 << i)) != 0 {
+            moves.push(i as u8);
+        }
+    }
 
-    // Let's stick to simple state hashing including points for now to be safe,
-    // or better: exclude points from hash, and handle math.
-    // For simplicity/correctness first: Hash everything.
-    // Optimization: Hash only hands + trick + turn.
-    // Then `val = minimax(...)`. `stored_val = val - current_points`.
-    // When retrieving: `return stored_val + current_points`.
+    // Move Ordering: Sort by potential strength
+    // Heuristic: Try high value cards first (winning tricks early is good for pruning)
+    // Strength: Trump > Non-Trump. Within suit: Rank Strength.
+    moves.sort_by(|&a, &b| {
+        let suit_a = a / 8;
+        let suit_b = b / 8;
+        let rank_a = (a % 8) as usize;
+        let rank_b = (b % 8) as usize;
+        let is_trump_a = suit_a == state.trump;
+        let is_trump_b = suit_b == state.trump;
 
-    // Let's implement the optimization:
-    let current_points = (if is_maximizing {
-        state.points[0]
-    } else {
-        state.points[1]
-    }) as i16;
-    let _ = current_points; // Suppress unused warning
-                            // Wait, points are [NS, EW].
-                            // If maximizing (NS), we care about NS points.
-                            // If minimizing (EW), we care about NS points (to minimize them).
-                            // So we always work with NS points.
-    let _ns_points_so_far = state.points[0] as i16;
+        if is_trump_a && !is_trump_b {
+            return std::cmp::Ordering::Less; // a > b (Desc)
+        }
+        if !is_trump_a && is_trump_b {
+            return std::cmp::Ordering::Greater;
+        }
 
+        // Both trump or both non-trump
+        let str_a = if is_trump_a {
+            crate::game::RANK_STRENGTH_TRUMP[rank_a]
+        } else {
+            crate::game::RANK_STRENGTH_NON_TRUMP[rank_a]
+        };
+        let str_b = if is_trump_b {
+            crate::game::RANK_STRENGTH_TRUMP[rank_b]
+        } else {
+            crate::game::RANK_STRENGTH_NON_TRUMP[rank_b]
+        };
+
+        str_b.cmp(&str_a) // Descending
+    });
+
+    // Create optimization to avoid redundant point calculations
     let mut val;
     let original_alpha = alpha;
 
     if is_maximizing {
         val = -INF;
-        for i in 0..32 {
-            if (legal_moves_mask & (1 << i)) != 0 {
-                let mut next_state = state.clone();
-                next_state.play_card(i as u8);
+        for &i in &moves {
+            let mut next_state = state.clone();
+            next_state.play_card(i);
 
-                let (eval, _) = minimax(&next_state, alpha, beta, tt);
+            let (eval, _) = minimax(&next_state, alpha, beta, tt);
 
-                if eval > val {
-                    val = eval;
-                    best_move = i as u8;
-                }
-                alpha = max(alpha, val);
-                if beta <= alpha {
-                    break;
-                }
+            if eval > val {
+                val = eval;
+                best_move = i;
+            }
+            alpha = max(alpha, val);
+            if beta <= alpha {
+                break;
             }
         }
     } else {
         val = INF;
-        for i in 0..32 {
-            if (legal_moves_mask & (1 << i)) != 0 {
-                let mut next_state = state.clone();
-                next_state.play_card(i as u8);
+        for &i in &moves {
+            let mut next_state = state.clone();
+            next_state.play_card(i);
 
-                let (eval, _) = minimax(&next_state, alpha, beta, tt);
+            let (eval, _) = minimax(&next_state, alpha, beta, tt);
 
-                if eval < val {
-                    val = eval;
-                    best_move = i as u8;
-                }
-                beta = min(beta, val);
-                if beta <= alpha {
-                    break;
-                }
+            if eval < val {
+                val = eval;
+                best_move = i;
+            }
+            beta = min(beta, val);
+            if beta <= alpha {
+                break;
             }
         }
     }

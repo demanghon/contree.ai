@@ -29,17 +29,20 @@
         "generate-bidding-data": {
             "executor": "nx:run-commands",
             "options": {
-                "command": ". $HOME/.cargo/env && maturin develop --release && python generate_datasets.py --gameplay-samples=0 --bidding-output=../../dist/datasets/bidding_data.parquet --bidding-samples={args.samples}",
+                "command": ". $HOME/.cargo/env && maturin develop --release && python generate_datasets.py --gameplay-samples=0 --bidding-output=../../dist/datasets/bidding_data --bidding-samples={args.samples} --batch-size={args.batchSize} --threads={args.threads}",
                 "cwd": "apps/coinche-engine",
-                "samples": 5000000
+                "samples": 50000,
+                "batchSize": 2000,
+                "threads": 0
             }
         },
         "generate-gameplay-data": {
             "executor": "nx:run-commands",
             "options": {
-                "command": ". $HOME/.cargo/env && maturin develop --release && python generate_datasets.py --bidding-samples=0 --gameplay-output=../../dist/datasets/gameplay_data.parquet --gameplay-samples={args.samples}",
+                "command": ". $HOME/.cargo/env && maturin develop --release && python generate_datasets.py --bidding-samples=0 --gameplay-output=../../dist/datasets/gameplay_data.parquet --gameplay-samples={args.samples} --threads={args.threads}",
                 "cwd": "apps/coinche-engine",
-                "samples": 10000
+                "samples": 10000,
+                "threads": 0
             }
         },
         "verify-dataset": {
