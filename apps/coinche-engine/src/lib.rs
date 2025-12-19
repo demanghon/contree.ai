@@ -3,8 +3,8 @@ mod game;
 mod solver;
 
 use data_gen::{
-    generate_hand_batch, generate_raw_gameplay_batch, solve_bidding_batch, solve_gameplay_batch,
-    solve_hand_batch, write_bidding_parquet, write_gameplay_parquet,
+    generate_hand_batch, generate_raw_gameplay_batch as gen_raw_gameplay_impl,
+    solve_gameplay_batch as solve_gameplay_impl, solve_hand_batch,
 };
 use game::GameState;
 use pyo3::exceptions::PyRuntimeError;
@@ -62,8 +62,7 @@ fn generate_raw_gameplay_batch(
     Vec<Vec<u8>>,
     Vec<u8>,
 )> {
-    let (hands, boards, history, trumps, tricks_won, players) =
-        generate_raw_gameplay_batch(num_samples);
+    let (hands, boards, history, trumps, tricks_won, players) = gen_raw_gameplay_impl(num_samples);
     Ok((hands, boards, history, trumps, tricks_won, players))
 }
 
@@ -77,7 +76,7 @@ fn solve_gameplay_batch(
     players: Vec<u8>,
 ) -> PyResult<(Vec<u8>, Vec<i16>, Vec<bool>)> {
     let (best_cards, best_scores, valid) =
-        solve_gameplay_batch(hands, boards, history, trumps, tricks_won, players);
+        solve_gameplay_impl(hands, boards, history, trumps, tricks_won, players);
     Ok((best_cards, best_scores, valid))
 }
 
