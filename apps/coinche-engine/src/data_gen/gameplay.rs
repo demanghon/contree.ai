@@ -78,16 +78,16 @@ fn generate_single_raw_state() -> RawGameplayState {
     let mut rng = rand::thread_rng();
 
     // 1. Temporal Bias
-    // 50% Endgame (Tricks 6-8 -> 5-7 index)
-    // 30% Midgame (Tricks 3-5 -> 2-4 index)
-    // 20% Opening (Tricks 1-2 -> 0-1 index)
+    // 50% Endgame (Played 5-7 tricks -> 3-1 remaining)
+    // 30% Midgame (Played 3-4 tricks -> 5-4 remaining)
+    // 20% Opening (Played 0-2 tricks -> 8-6 remaining) - SLOW PART
     let r = rng.gen_range(0..100);
     let target_trick = if r < 50 {
         rng.gen_range(5..8)
     } else if r < 80 {
-        rng.gen_range(2..5)
+        rng.gen_range(3..5)
     } else {
-        rng.gen_range(0..2)
+        rng.gen_range(0..3)
     };
 
     let hands = generate_random_hands();
@@ -109,7 +109,6 @@ fn generate_single_raw_state() -> RawGameplayState {
                 }
             }
             if moves.is_empty() {
-                // Should not happen theoretically if logic correct
                 break;
             }
             let m = moves[rng.gen_range(0..moves.len())];
@@ -188,8 +187,6 @@ pub fn solve_gameplay_batch(
                 state.current_trick[seat] = card;
             }
 
-            // --- Logic from generate_single_sample (Perturbation & Filtering) ---
-
             if state.is_terminal() {
                 return SolvedGameplaySample {
                     best_card: 0,
@@ -198,75 +195,14 @@ pub fn solve_gameplay_batch(
                 };
             }
 
-            let legal_moves_mask = state.get_legal_moves();
-            let mut moves_scores = Vec::new();
+            // PERTURBATION REMOVED: Fast Path Only
+            // Just solve once for best move
+            let (best_score, best_card) = solve(&state, false);
 
-            for j in 0..32 {
-                if (legal_moves_mask & (1 << j)) != 0 {
-                    let mut next_state = state.clone();
-                    next_state.play_card(j as u8);
-                    let (score, _) = solve(&next_state, false);
-                    moves_scores.push((j as u8, score));
-                }
-            }
-
-            if moves_scores.len() < 2 {
-                return SolvedGameplaySample {
-                    best_card: 0,
-                    best_score: 0,
-                    valid: false,
-                };
-            }
-
-            // Sort moves
-            let is_maximizing = state.current_player % 2 == 0;
-            if is_maximizing {
-                moves_scores.sort_by(|a, b| b.1.cmp(&a.1));
-            } else {
-                moves_scores.sort_by(|a, b| a.1.cmp(&b.1));
-            }
-
-            let best_move = moves_scores[0].0;
-            let best_score = moves_scores[0].1;
-            let second_move = moves_scores[1].0;
-            let second_score = moves_scores[1].1;
-            let delta = (best_score - second_score).abs();
-
-            let mut rng = rand::thread_rng();
-            let perturbation = rng.gen_bool(0.2);
-
-            if perturbation {
-                let mut perturbed_state = state.clone();
-                perturbed_state.play_card(second_move);
-
-                if perturbed_state.is_terminal() {
-                    return SolvedGameplaySample {
-                        best_card: 0,
-                        best_score: 0,
-                        valid: false,
-                    };
-                }
-
-                let (recovery_score, recovery_best_move) = solve(&perturbed_state, false);
-
-                return SolvedGameplaySample {
-                    best_card: recovery_best_move,
-                    best_score: recovery_score,
-                    valid: true,
-                };
-            } else {
-                if delta == 0 {
-                    return SolvedGameplaySample {
-                        best_card: 0,
-                        best_score: 0,
-                        valid: false,
-                    };
-                }
-                return SolvedGameplaySample {
-                    best_card: best_move,
-                    best_score: best_score,
-                    valid: true,
-                };
+            SolvedGameplaySample {
+                best_card,
+                best_score,
+                valid: true,
             }
         })
         .collect();
