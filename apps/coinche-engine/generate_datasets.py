@@ -1,4 +1,5 @@
 import os
+import sys
 import argparse
 import time
 import json
@@ -428,10 +429,18 @@ if __name__ == "__main__":
         os.environ["RAYON_NUM_THREADS"] = str(args.threads)
         print(f"Setting RAYON_NUM_THREADS={args.threads}")
 
-    generate_datasets(
-        args.bidding_samples, 
-        args.gameplay_samples, 
-        args.bidding_output, 
-        args.gameplay_output,
-        args.batch_size
-    )
+    try:
+        generate_datasets(
+            args.bidding_samples, 
+            args.gameplay_samples, 
+            args.bidding_output, 
+            args.gameplay_output,
+            args.batch_size
+        )
+    except KeyboardInterrupt:
+        print("\n\n⚠️ Generation interrupted by user.")
+        print("✅ Progress has been saved. Run the command again to resume.")
+        try:
+            sys.exit(0)
+        except SystemExit:
+            os._exit(0)
