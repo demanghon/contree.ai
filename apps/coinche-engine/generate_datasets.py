@@ -270,7 +270,12 @@ def generate_datasets(bidding_samples, gameplay_samples, bidding_output_dir, gam
             # If dataset is HUGE (10M+), this might be an issue, but for <10M it's fine.
             full_table = raw_dataset.read()
             
-            for i in range(processed_count, total_rows, batch_size):
+            # Calculate total batches
+            total_batches = (total_rows + batch_size - 1) // batch_size
+            start_batch = processed_count // batch_size
+            
+            from tqdm import tqdm
+            for i in tqdm(range(processed_count, total_rows, batch_size), initial=start_batch, total=total_batches, desc="Phase 2 Solving"):
                 batch_end = min(i + batch_size, total_rows)
                 
                 batch = full_table.slice(i, batch_end - i)
@@ -378,12 +383,6 @@ def generate_datasets(bidding_samples, gameplay_samples, bidding_output_dir, gam
                 processed_count = batch_end
                 with open(gameplay_state_file, 'w') as f:
                     json.dump({'processed_count': processed_count}, f)
-
-                # Log
-                if i % (batch_size * 5) == 0:
-                    elapsed = time.time() - start_time
-                    rate = (processed_count - state.get('processed_count', 0) if 'state' in locals() else processed_count) / (elapsed + 0.001)
-                    print(f"Processed {processed_count}/{total_rows} ({(processed_count/total_rows)*100:.1f}%)")
 
             total_duration = time.time() - start_time
             print(f"Gameplay generation complete. Parts saved in {os.path.join(gameplay_dir, 'gameplay_parts')}")

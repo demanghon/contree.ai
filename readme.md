@@ -85,26 +85,48 @@ You can generate synthetic training data using the Rust engine. The data will be
 
 #### Generate Bidding Data
 
-Generates hand evaluations for the Bidding phase.
+Generates hand evaluations for the Bidding phase. This process solves 4 full games per sample (one for each trump suit) and is computationally intensive.
 
 ```bash
+# Basic run (default 50,000 samples)
 nx run coinche-engine:generate-bidding-data
+
+# Custom size and thread control (Recommended for memory management)
+nx run coinche-engine:generate-bidding-data --samples=10000 --threads=4 --batchSize=1000
 ```
 
-- **Output**: `dist/datasets/bidding_data.parquet`
-- **Default**: 10,000 samples
-- **Custom Size**: `nx run coinche-engine:generate-bidding-data --samples=50000`
+- **Output**: `dist/datasets/bidding_data.parquet` (merged) and `dist/datasets/bidding_data/` (partitions)
+- **Performance**: High CPU/RAM usage. Use `--threads` to limit parallelism if you encounter OOM errors.
+- **Arguments**:
+  - `--samples`: Total samples to generate (Default: 10,000).
+  - `--threads`: CPU threads to use (Default: 4). Lower this if you run out of RAM.
+  - `--batchSize`: Samples per solver batch (Default: 2,000). Lower this (e.g., 500) to reduce peak RAM usage.
 
 #### Generate Gameplay Data
 
-Generates decision-making data for the Card Play phase.
+Generates decision-making data for the Card Play phase. This simulates partial games and is significantly faster than bidding generation.
 
 ```bash
+# Basic run (default 10,000 samples, 1 thread)
 nx run coinche-engine:generate-gameplay-data
+
+# Fast run (use more threads for speed)
+nx run coinche-engine:generate-gameplay-data --samples=100000 --threads=8
 ```
 
 - **Output**: `dist/datasets/gameplay_data.parquet`
-- **Default**: 10,000 samples
-- **Custom Size**: `nx run coinche-engine:generate-gameplay-data --samples=50000`
+- **Performance**: Low memory usage, scales well with threads. Use higher thread counts for faster generation.
+- **Arguments**:
+  - `--samples`: Total samples to generate (Default: 10,000).
+  - `--threads`: CPU threads to use (Default: 1). Increase this for speed (e.g., 8 or 16).
+  - `--batchSize`: Samples per solver batch (Default: 10,000). Control progress update frequency.
+
+### Command Arguments
+
+| Argument      | Description                                           | Default                        | Recommended Usage                                     |
+| ------------- | ----------------------------------------------------- | ------------------------------ | ----------------------------------------------------- |
+| `--samples`   | Total number of samples to generate.                  | `10,000`                       | Increase to `100,000`+ for training.                  |
+| `--threads`   | Number of CPU threads to use.                         | `4` (Bidding) / `1` (Gameplay) | Set to roughly `CPU Cores - 2`. Reduce if OOM occurs. |
+| `--batchSize` | Number of hands to solve in one batch (Bidding only). | `2,000`                        | Lower to `500-1000` to reduce RAM usage per thread.   |
 
 > **Note**: These commands use the `maturin` tool to compile the Rust code and then run the Python generation script.

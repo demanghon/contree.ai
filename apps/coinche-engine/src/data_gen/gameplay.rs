@@ -44,6 +44,7 @@ pub fn generate_raw_gameplay_batch(
 
     let states: Vec<RawGameplayState> = (0..batch_size)
         .into_par_iter()
+        .progress_count(batch_size as u64)
         .map(|_| generate_single_raw_state())
         .collect();
 
@@ -154,40 +155,132 @@ fn generate_single_raw_state() -> RawGameplayState {
 }
 
 pub fn solve_gameplay_batch(
-    hands: Vec<u32>,
+    flattened_hands: Vec<u32>,
     boards: Vec<Vec<u8>>,
     history: Vec<u32>,
     trumps: Vec<u8>,
     tricks_won: Vec<Vec<u8>>,
     players: Vec<u8>,
 ) -> (Vec<u8>, Vec<i16>, Vec<bool>) {
-    // We iterate in parallel
-    let results: Vec<SolvedGameplaySample> = (0..hands.len())
+    // flattened_hands is size N*4.
+    let num_samples = boards.len();
+
+    let results: Vec<SolvedGameplaySample> = (0..num_samples)
         .into_par_iter()
         .map(|i| {
             // Reconstruct State
-            // Note: We only have 'hand' of current player (u32), history (u32), trump.
-            // But to run solver, we need FULL state (all 4 hands).
-            // PROBLEM: In `generate_raw_state`, we threw away the other 3 hands!
-            // The solver is Double Dummy, it needs perfect information.
-            // If we only save "My Hand" + "History", we cannot reconstruct the opponent hands exactly as they were.
-            // We can reconstruct "A" potential deal consistent with history, but it won't be the same one.
-            // Does this matter?
-            // Yes. If we simulated a specific game, we should solve THAT specific game.
-            // If we regenerate random opponent hands now, they might be inconsistent or "easier/harder" than the original.
+            let mut state = GameState::new(trumps[i]);
 
-            // Correction: We MUST save all 4 hands in the raw state.
-            // Since we receive a `Vec<u32>` of hands here, let's assume we pass ALL 4 hands combined or similar.
-            // Or better, for Phase 1 <-> Phase 2, we just pass the full u32[4] hands.
+            // Reconstruct hands
+            for h in 0..4 {
+                state.hands[h] = flattened_hands[i * 4 + h];
+            }
 
-            // I will return invalid dummy result for now to indicate I need to refactor signatures in next step.
-            SolvedGameplaySample {
-                best_card: 0,
-                best_score: 0,
-                valid: false,
+            state.current_player = players[i];
+            state.tricks_won[0] = tricks_won[i][0];
+            state.tricks_won[1] = tricks_won[i][1];
+
+            // Reconstruct current trick
+            for (idx, &card) in boards[i].iter().enumerate() {
+                let len = boards[i].len();
+                let start_player = (state.current_player as i8 - len as i8).rem_euclid(4) as usize;
+                let seat = (start_player + idx) % 4;
+                state.current_trick[seat] = card;
+            }
+
+            // --- Logic from generate_single_sample (Perturbation & Filtering) ---
+
+            if state.is_terminal() {
+                return SolvedGameplaySample {
+                    best_card: 0,
+                    best_score: 0,
+                    valid: false,
+                };
+            }
+
+            let legal_moves_mask = state.get_legal_moves();
+            let mut moves_scores = Vec::new();
+
+            for j in 0..32 {
+                if (legal_moves_mask & (1 << j)) != 0 {
+                    let mut next_state = state.clone();
+                    next_state.play_card(j as u8);
+                    let (score, _) = solve(&next_state, false);
+                    moves_scores.push((j as u8, score));
+                }
+            }
+
+            if moves_scores.len() < 2 {
+                return SolvedGameplaySample {
+                    best_card: 0,
+                    best_score: 0,
+                    valid: false,
+                };
+            }
+
+            // Sort moves
+            let is_maximizing = state.current_player % 2 == 0;
+            if is_maximizing {
+                moves_scores.sort_by(|a, b| b.1.cmp(&a.1));
+            } else {
+                moves_scores.sort_by(|a, b| a.1.cmp(&b.1));
+            }
+
+            let best_move = moves_scores[0].0;
+            let best_score = moves_scores[0].1;
+            let second_move = moves_scores[1].0;
+            let second_score = moves_scores[1].1;
+            let delta = (best_score - second_score).abs();
+
+            let mut rng = rand::thread_rng();
+            let perturbation = rng.gen_bool(0.2);
+
+            if perturbation {
+                let mut perturbed_state = state.clone();
+                perturbed_state.play_card(second_move);
+
+                if perturbed_state.is_terminal() {
+                    return SolvedGameplaySample {
+                        best_card: 0,
+                        best_score: 0,
+                        valid: false,
+                    };
+                }
+
+                let (recovery_score, recovery_best_move) = solve(&perturbed_state, false);
+
+                return SolvedGameplaySample {
+                    best_card: recovery_best_move,
+                    best_score: recovery_score,
+                    valid: true,
+                };
+            } else {
+                if delta == 0 {
+                    return SolvedGameplaySample {
+                        best_card: 0,
+                        best_score: 0,
+                        valid: false,
+                    };
+                }
+                return SolvedGameplaySample {
+                    best_card: best_move,
+                    best_score: best_score,
+                    valid: true,
+                };
             }
         })
         .collect();
 
-    (vec![], vec![], vec![])
+    // Unzip results
+    let mut best_cards = Vec::with_capacity(num_samples);
+    let mut best_scores = Vec::with_capacity(num_samples);
+    let mut valid_mask = Vec::with_capacity(num_samples);
+
+    for r in results {
+        best_cards.push(r.best_card);
+        best_scores.push(r.best_score);
+        valid_mask.push(r.valid);
+    }
+
+    (best_cards, best_scores, valid_mask)
 }

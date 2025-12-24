@@ -39,10 +39,11 @@
         "generate-gameplay-data": {
             "executor": "nx:run-commands",
             "options": {
-                "command": ". $HOME/.cargo/env && maturin develop --release && python generate_datasets.py --bidding-samples=0 --gameplay-output=../../dist/datasets/gameplay_data.parquet --gameplay-samples={args.samples} --threads={args.threads}",
+                "command": ". $HOME/.cargo/env && maturin develop --release && python generate_datasets.py --bidding-samples=0 --gameplay-output=../../dist/datasets/gameplay_data.parquet --gameplay-samples={args.samples} --threads={args.threads} --batch-size={args.batchSize}",
                 "cwd": "apps/coinche-engine",
                 "samples": 100000,
-                "threads": 1
+                "threads": 1,
+                "batchSize": 10000
             }
         },
         "verify-dataset": {
