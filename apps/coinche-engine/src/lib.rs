@@ -24,9 +24,11 @@ fn generate_bidding_hands(num_samples: usize) -> PyResult<(Vec<u32>, Vec<u8>)> {
 }
 
 #[pyfunction]
-fn solve_bidding_batch(hands: Vec<u32>) -> PyResult<Vec<Vec<i16>>> {
-    let scores = solve_hand_batch(hands);
-    Ok(scores)
+fn solve_bidding_batch(py: Python, hands: Vec<u32>) -> PyResult<Vec<Vec<i16>>> {
+    py.allow_threads(|| {
+        let scores = solve_hand_batch(hands);
+        Ok(scores)
+    })
 }
 
 #[pyfunction]
@@ -53,6 +55,7 @@ fn generate_bidding_data(path: String, num_samples: usize) -> PyResult<()> {
 
 #[pyfunction]
 fn generate_raw_gameplay_batch(
+    py: Python,
     num_samples: usize,
 ) -> PyResult<(
     Vec<u32>,
@@ -62,12 +65,16 @@ fn generate_raw_gameplay_batch(
     Vec<Vec<u8>>,
     Vec<u8>,
 )> {
-    let (hands, boards, history, trumps, tricks_won, players) = gen_raw_gameplay_impl(num_samples);
-    Ok((hands, boards, history, trumps, tricks_won, players))
+    py.allow_threads(|| {
+        let (hands, boards, history, trumps, tricks_won, players) =
+            gen_raw_gameplay_impl(num_samples);
+        Ok((hands, boards, history, trumps, tricks_won, players))
+    })
 }
 
 #[pyfunction]
 fn solve_gameplay_batch(
+    py: Python,
     hands: Vec<u32>,
     boards: Vec<Vec<u8>>,
     history: Vec<u32>,
@@ -75,9 +82,11 @@ fn solve_gameplay_batch(
     tricks_won: Vec<Vec<u8>>,
     players: Vec<u8>,
 ) -> PyResult<(Vec<u8>, Vec<i16>, Vec<bool>)> {
-    let (best_cards, best_scores, valid) =
-        solve_gameplay_impl(hands, boards, history, trumps, tricks_won, players);
-    Ok((best_cards, best_scores, valid))
+    py.allow_threads(|| {
+        let (best_cards, best_scores, valid) =
+            solve_gameplay_impl(hands, boards, history, trumps, tricks_won, players);
+        Ok((best_cards, best_scores, valid))
+    })
 }
 
 /// A Python module implemented in Rust.
