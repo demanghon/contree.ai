@@ -43,7 +43,7 @@
                 "cwd": "apps/coinche-engine",
                 "samples": 100000,
                 "threads": 1,
-                "batchSize": 10000
+                "batchSize": 2000
             }
         },
         "verify-dataset": {
