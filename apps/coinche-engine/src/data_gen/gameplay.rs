@@ -180,14 +180,33 @@ pub fn solve_gameplay_batch(
             state.tricks_won[1] = tricks_won[i][1];
 
             // Reconstruct current trick
+            let trick_len = boards[i].len() as u8;
+            state.trick_size = trick_len;
+            if trick_len > 0 {
+                // Current player is the one to move NEXT.
+                // So the starter is (current - len) % 4.
+                state.trick_starter =
+                    (state.current_player as i8 - trick_len as i8).rem_euclid(4) as u8;
+            } else {
+                state.trick_starter = state.current_player;
+            }
+
             for (idx, &card) in boards[i].iter().enumerate() {
-                let len = boards[i].len();
-                let start_player = (state.current_player as i8 - len as i8).rem_euclid(4) as usize;
+                let start_player = state.trick_starter as usize;
                 let seat = (start_player + idx) % 4;
                 state.current_trick[seat] = card;
             }
 
             if state.is_terminal() {
+                return SolvedGameplaySample {
+                    best_card: 0,
+                    best_score: 0,
+                    valid: false,
+                };
+            }
+
+            // Guard: if the current player has no legal moves (e.g., empty hand), treat as invalid
+            if state.get_legal_moves() == 0 {
                 return SolvedGameplaySample {
                     best_card: 0,
                     best_score: 0,
