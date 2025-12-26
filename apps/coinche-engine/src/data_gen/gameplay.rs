@@ -1,4 +1,4 @@
-use crate::game::GameState;
+use crate::gameplay::playing::PlayingState;
 use crate::solver::solve;
 use arrow::array::{ListArray, UInt32Array, UInt8Array};
 use arrow::datatypes::{DataType, Field, Schema};
@@ -93,7 +93,7 @@ fn generate_single_raw_state() -> RawGameplayState {
     let hands = generate_random_hands();
     let trump = rng.gen_range(0..4) as u8;
 
-    let mut state = GameState::new(trump);
+    let mut state = PlayingState::new(trump);
     state.hands = hands;
     let mut history_mask = 0u32;
 
@@ -168,7 +168,7 @@ pub fn solve_gameplay_batch(
         .into_par_iter()
         .map(|i| {
             // Reconstruct State
-            let mut state = GameState::new(trumps[i]);
+            let mut state = PlayingState::new(trumps[i]);
 
             // Reconstruct hands
             for h in 0..4 {

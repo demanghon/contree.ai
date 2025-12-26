@@ -1,4 +1,4 @@
-use crate::game::GameState;
+use crate::gameplay::playing::PlayingState;
 use crate::solver::solve;
 use arrow::array::{Int16Array, ListArray, UInt32Array};
 use arrow::datatypes::{DataType, Field, Schema};
@@ -84,7 +84,7 @@ pub fn solve_hand_batch(flattened_hands: Vec<u32>) -> Vec<Vec<i16>> {
             let mut scores = Vec::with_capacity(4);
             // Contracts: 0=D, 1=S, 2=H, 3=C (No NT/AT)
             for trump in 0..4 {
-                let mut state = GameState::new(trump as u8);
+                let mut state = PlayingState::new(trump as u8);
                 state.hands = hands;
 
                 // Solver returns (score, best_move). Score is for the current player's team.

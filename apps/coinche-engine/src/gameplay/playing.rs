@@ -33,42 +33,48 @@ pub const RANK_STRENGTH_TRUMP: [u8; 8] = [0, 1, 6, 4, 7, 2, 3, 5]; // 7<8<Q<K<10
 
 #[pyclass]
 #[derive(Clone, Debug)]
-pub struct GameState {
+pub struct PlayingState {
     #[pyo3(get)]
     pub hands: [u32; 4],
     #[pyo3(get)]
-    pub current_trick: [u8; 4], // Card indices 0-31, 0xFF=empty
+    pub current_trick: [u8; 4],
     #[pyo3(get)]
-    pub trick_size: u8,
+    pub tricks_won: [u8; 2],
     #[pyo3(get)]
-    pub trick_starter: u8,
-    #[pyo3(get)]
-    pub current_player: u8,
-    #[pyo3(get)]
-    pub points: [u16; 2], // 0: NS, 1: EW
+    pub points: [u16; 2],
     #[pyo3(get)]
     pub trump: u8,
     #[pyo3(get)]
-    pub belote_scored: [bool; 2],
+    pub current_player: u8,
     #[pyo3(get)]
-    pub tricks_won: [u8; 2],
+    pub trick_starter: u8,
+    #[pyo3(get)]
+    pub trick_size: u8,
+    #[pyo3(get)]
+    pub belote_scored: [bool; 2],
+}
+
+impl PlayingState {
+    pub fn new(trump: u8) -> Self {
+        PlayingState {
+            hands: [0; 4],
+            current_trick: [0xFF; 4],
+            tricks_won: [0; 2],
+            points: [0; 2],
+            trump,
+            current_player: 0,
+            trick_starter: 0,
+            trick_size: 0,
+            belote_scored: [false; 2],
+        }
+    }
 }
 
 #[pymethods]
-impl GameState {
+impl PlayingState {
     #[new]
-    pub fn new(trump: u8) -> Self {
-        GameState {
-            hands: [0; 4],
-            current_trick: [0xFF; 4],
-            trick_size: 0,
-            trick_starter: 0,
-            current_player: 0,
-            points: [0; 2],
-            trump,
-            belote_scored: [false; 2],
-            tricks_won: [0; 2],
-        }
+    pub fn py_new(trump: u8) -> Self {
+        PlayingState::new(trump)
     }
 
     pub fn set_hand(&mut self, player: u8, cards: u32) {
@@ -340,7 +346,7 @@ impl GameState {
 
     pub fn __repr__(&self) -> String {
         format!(
-            "GameState(trump={}, player={}, ns_points={}, ew_points={})",
+            "PlayingState(trump={}, player={}, ns_points={}, ew_points={})",
             self.trump, self.current_player, self.points[0], self.points[1]
         )
     }
@@ -357,7 +363,7 @@ mod tests {
 
     #[test]
     fn test_points_counting() {
-        let mut state = GameState::new(HEARTS); // Hearts is trump
+        let mut state = PlayingState::new(HEARTS); // Hearts is trump
 
         // Trick: J(Hearts/Trump), 9(Hearts/Trump), A(Hearts/Trump), 10(Spades/NoTrump)
         // Values: J=20, 9=14, A=11, 10=10. Total = 55.
@@ -379,7 +385,7 @@ mod tests {
 
     #[test]
     fn test_belote_rebelote() {
-        let mut state = GameState::new(HEARTS);
+        let mut state = PlayingState::new(HEARTS);
         // Player 0 has K and Q of Hearts
         state.hands[0] = (1 << card(HEARTS, 6)) | (1 << card(HEARTS, 5));
 
@@ -403,7 +409,7 @@ mod tests {
 
     #[test]
     fn test_capot_bonus() {
-        let mut state = GameState::new(HEARTS);
+        let mut state = PlayingState::new(HEARTS);
         // Team 0 (NS) needs to win 8 tricks.
         // Hack: Manually set tricks_won to 7 and play last trick
         state.tricks_won[0] = 7;
@@ -439,7 +445,7 @@ mod tests {
 
     #[test]
     fn test_must_follow() {
-        let mut state = GameState::new(HEARTS);
+        let mut state = PlayingState::new(HEARTS);
         state.trick_size = 1;
         state.trick_starter = 0;
         state.current_trick[0] = card(CLUBS, 7); // Ace Clubs led
@@ -454,7 +460,7 @@ mod tests {
 
     #[test]
     fn test_must_cut() {
-        let mut state = GameState::new(HEARTS);
+        let mut state = PlayingState::new(HEARTS);
         state.trick_size = 1;
         state.trick_starter = 0;
         state.current_trick[0] = card(CLUBS, 7); // Ace Clubs led
@@ -471,7 +477,7 @@ mod tests {
 
     #[test]
     fn test_must_overcut() {
-        let mut state = GameState::new(HEARTS);
+        let mut state = PlayingState::new(HEARTS);
         state.trick_size = 2;
         state.trick_starter = 0;
         state.current_trick[0] = card(CLUBS, 7); // P0: A Clubs
@@ -497,7 +503,7 @@ mod tests {
 
     #[test]
     fn test_partner_master_no_cut() {
-        let mut state = GameState::new(HEARTS);
+        let mut state = PlayingState::new(HEARTS);
         state.trick_size = 2;
         state.trick_starter = 0;
         state.current_trick[0] = card(CLUBS, 7); // P0: A Clubs (Master)

@@ -1,4 +1,4 @@
-use crate::game::GameState;
+use crate::gameplay::playing::PlayingState;
 use std::cmp::{max, min};
 use std::collections::HashMap;
 
@@ -12,7 +12,7 @@ struct TTEntry {
               // depth: u8, // Not strictly needed for end-game solver (always solves to end), but good practice
 }
 
-pub fn solve(state: &GameState, generate_graph: bool) -> (i16, u8) {
+pub fn solve(state: &PlayingState, generate_graph: bool) -> (i16, u8) {
     let mut tt = HashMap::new();
     let (score, best_move) = minimax(state, -INF, INF, &mut tt);
 
@@ -23,7 +23,7 @@ pub fn solve(state: &GameState, generate_graph: bool) -> (i16, u8) {
     (score, best_move)
 }
 
-fn generate_dot_file(root_state: &GameState, tt: &HashMap<u64, TTEntry>) {
+fn generate_dot_file(root_state: &PlayingState, tt: &HashMap<u64, TTEntry>) {
     use std::fs::File;
     use std::io::Write;
 
@@ -195,7 +195,7 @@ fn generate_dot_file(root_state: &GameState, tt: &HashMap<u64, TTEntry>) {
 }
 
 fn minimax(
-    state: &GameState,
+    state: &PlayingState,
     mut alpha: i16,
     mut beta: i16,
     tt: &mut HashMap<u64, TTEntry>,
@@ -260,14 +260,14 @@ fn minimax(
 
         // Both trump or both non-trump
         let str_a = if is_trump_a {
-            crate::game::RANK_STRENGTH_TRUMP[rank_a]
+            crate::gameplay::playing::RANK_STRENGTH_TRUMP[rank_a]
         } else {
-            crate::game::RANK_STRENGTH_NON_TRUMP[rank_a]
+            crate::gameplay::playing::RANK_STRENGTH_NON_TRUMP[rank_a]
         };
         let str_b = if is_trump_b {
-            crate::game::RANK_STRENGTH_TRUMP[rank_b]
+            crate::gameplay::playing::RANK_STRENGTH_TRUMP[rank_b]
         } else {
-            crate::game::RANK_STRENGTH_NON_TRUMP[rank_b]
+            crate::gameplay::playing::RANK_STRENGTH_NON_TRUMP[rank_b]
         };
 
         str_b.cmp(&str_a) // Descending
@@ -347,7 +347,7 @@ fn minimax(
     (val, best_move)
 }
 
-fn compute_hash(state: &GameState) -> u64 {
+fn compute_hash(state: &PlayingState) -> u64 {
     // Simple hash: XOR of hands + trick + turn + points
     // Use a simple mixing function
     let mut h: u64 = 0;
@@ -365,7 +365,7 @@ fn compute_hash(state: &GameState) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::{GameState, CLUBS, HEARTS, SPADES};
+    use crate::gameplay::playing::{PlayingState, CLUBS, HEARTS, SPADES};
 
     fn card(suit: u8, rank: u8) -> u8 {
         suit * 8 + rank
@@ -373,7 +373,7 @@ mod tests {
 
     #[test]
     fn test_solve_last_trick() {
-        let mut state = GameState::new(HEARTS);
+        let mut state = PlayingState::new(HEARTS);
         // P0: Ace Hearts (Trump)
         // P1: 7 Hearts
         // P2: 8 Hearts
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_solve_two_tricks_simple() {
-        let mut state = GameState::new(HEARTS);
+        let mut state = PlayingState::new(HEARTS);
         // P0: A(H), K(H)
         // P1: 7(H), 8(H)
         // P2: 7(S), 8(S)
@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     fn test_capot_recognition() {
-        let mut state = GameState::new(HEARTS);
+        let mut state = PlayingState::new(HEARTS);
         // P0 has a winning hand for 8 tricks.
         // To make test fast, simulate 4 tricks already played/won.
         state.tricks_won[0] = 4;
