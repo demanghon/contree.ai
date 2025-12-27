@@ -44,3 +44,4 @@ Thumbs.db
 .angular
 apps/coinche-ml/src/__pycache__
 apps/coinche-engine/target
+apps/coinche-api/__pycache__

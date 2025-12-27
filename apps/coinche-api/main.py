@@ -1,10 +1,19 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import coinche_engine
 from typing import Optional, List
 import uuid
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # In-memory store for active games
 games = {}
@@ -52,9 +61,10 @@ def get_game(game_id: str):
     match = games[game_id]
     
     state = {
+        "game_id": game_id,
         "phase": match.phase_name(),
         "dealer": match.dealer,
-        # "hands": match.hands # Consider hiding hands for client
+        "hands": match.hands 
     }
     
     if match.phase_name() == "BIDDING":
@@ -75,7 +85,8 @@ def get_game(game_id: str):
                 "trump": ps.trump,
                 "tricks_won": ps.tricks_won,
                 "points": ps.points,
-                "trick_starter": ps.trick_starter
+                "trick_starter": ps.trick_starter,
+                "legal_moves": ps.get_legal_moves()
             }
         
         state["contract"] = (match.contract.value, match.contract.trump) if match.contract else None

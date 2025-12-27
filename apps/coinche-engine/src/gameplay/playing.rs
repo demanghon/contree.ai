@@ -520,4 +520,190 @@ mod tests {
         // Not forced to cut because partner is winning. Can play anything.
         assert_eq!(legal, state.hands[2]);
     }
+
+    // Additional Rules Tests (Added for verification)
+
+    // Helper to create card index: Suit * 8 + Rank
+    fn c(suit: u8, rank: u8) -> u32 {
+        1 << (suit * 8 + rank)
+    }
+
+    fn idx(suit: u8, rank: u8) -> u8 {
+        suit * 8 + rank
+    }
+
+    #[test]
+    fn test_lead_any_card() {
+        let mut state = PlayingState::new(HEARTS); // Trump Hearts
+        state.current_player = 0;
+
+        // P0 has: 7H, 8H (Trump), 7S, 8S, 7C, 8C
+        state.hands[0] =
+            c(HEARTS, 0) | c(HEARTS, 1) | c(SPADES, 0) | c(SPADES, 1) | c(CLUBS, 0) | c(CLUBS, 1);
+
+        // It's the lead (trick_size = 0)
+        assert_eq!(state.trick_size, 0);
+
+        let legal = state.get_legal_moves();
+
+        // Should be equal to hand
+        assert_eq!(
+            legal, state.hands[0],
+            "Lead player receives full hand as legal moves"
+        );
+    }
+
+    #[test]
+    fn test_must_follow_suit_full() {
+        let mut state = PlayingState::new(HEARTS);
+
+        // P0 leads 7 Spades
+        state.current_player = 0;
+        state.trick_starter = 0;
+        state.hands[0] = c(SPADES, 0);
+        state.play_card(idx(SPADES, 0));
+
+        assert_eq!(state.current_player, 1);
+
+        // P1 has 8S (Follow), 7H (Trump), 7C (Other)
+        state.hands[1] = c(SPADES, 1) | c(HEARTS, 0) | c(CLUBS, 0);
+
+        let legal = state.get_legal_moves();
+
+        // Must play Spades (8S)
+        assert_eq!(legal, c(SPADES, 1));
+    }
+
+    #[test]
+    fn test_must_follow_multiple_choices_full() {
+        let mut state = PlayingState::new(HEARTS);
+
+        // P0 leads 7 Spades
+        state.trick_starter = 0;
+        state.current_player = 0;
+        state.hands[0] = c(SPADES, 0);
+        state.play_card(idx(SPADES, 0));
+
+        // P1 has 8S, 9S and other stuff
+        state.hands[1] = c(SPADES, 1) | c(SPADES, 2) | c(CLUBS, 0);
+
+        let legal = state.get_legal_moves();
+
+        // Must play 8S or 9S
+        assert_eq!(legal, c(SPADES, 1) | c(SPADES, 2));
+    }
+
+    #[test]
+    fn test_must_cut_if_void_full() {
+        let mut state = PlayingState::new(HEARTS);
+
+        // P0 leads 7 Spades
+        state.trick_starter = 0;
+        state.current_player = 0;
+        state.hands[0] = c(SPADES, 0);
+        state.play_card(idx(SPADES, 0));
+
+        // P1 has NO Spades, but has Trump (7H) and Club
+        state.hands[1] = c(HEARTS, 0) | c(CLUBS, 0);
+
+        let legal = state.get_legal_moves();
+
+        // Must cut (Play Trump 7H)
+        assert_eq!(legal, c(HEARTS, 0));
+    }
+
+    #[test]
+    fn test_play_any_if_void_and_no_trump_full() {
+        let mut state = PlayingState::new(HEARTS);
+
+        // P0 leads 7 Spades
+        state.trick_starter = 0;
+        state.current_player = 0;
+        state.hands[0] = c(SPADES, 0);
+        state.play_card(idx(SPADES, 0));
+
+        // P1 has NO Spades, NO Trump, only Clubs/Diamonds
+        state.hands[1] = c(CLUBS, 0) | c(DIAMONDS, 0);
+
+        let legal = state.get_legal_moves();
+
+        // Can play anything (Club or Diamond)
+        assert_eq!(legal, c(CLUBS, 0) | c(DIAMONDS, 0));
+    }
+
+    #[test]
+    fn test_overcut_mandatory_full() {
+        let mut state = PlayingState::new(HEARTS);
+
+        // P0 leads 7 Spades
+        state.play_card(idx(SPADES, 0)); // P0
+
+        // P1 Cuts with 10 Hearts (Trump)
+        state.hands[1] = c(HEARTS, 3); // 10H
+        state.play_card(idx(HEARTS, 3));
+
+        // P2 (Partner of P0) has no Spades.
+        // Has 9H (Val 14, > 10H) and 7H (Val 0, < 10H).
+        // Must overcut if possible.
+        state.hands[2] = c(HEARTS, 2) | c(HEARTS, 0);
+
+        let legal = state.get_legal_moves();
+
+        // Must play 9H (Overcut)
+        assert_eq!(legal, c(HEARTS, 2));
+    }
+
+    #[test]
+    fn test_cut_if_cannot_overcut_full() {
+        let mut state = PlayingState::new(HEARTS);
+
+        state.play_card(idx(SPADES, 0)); // P0
+
+        // P1 Cuts with 10H (Val 10)
+        state.hands[1] = c(HEARTS, 3);
+        state.play_card(idx(HEARTS, 3));
+
+        // P2 has no Spades.
+        // Has only 7H (Val 0) and 8H (Val 0). Both lower than 10H.
+        // Cannot overcut. But must still play trump ("pisser" / under-cut).
+        state.hands[2] = c(HEARTS, 0) | c(HEARTS, 1) | c(CLUBS, 0);
+
+        let legal = state.get_legal_moves();
+
+        // Must play 7H or 8H. Cannot play Club.
+        assert_eq!(legal, c(HEARTS, 0) | c(HEARTS, 1));
+    }
+
+    #[test]
+    fn test_trump_lead_must_go_higher_full() {
+        let mut state = PlayingState::new(HEARTS);
+
+        // P0 leads 10 Hearts (Trump)
+        state.play_card(idx(HEARTS, 3));
+
+        // P1 has 9H (Strength 6) and QH (Strength 2).
+        // 10H (Strength 4).
+        // Must play higher if possible -> 9H.
+        state.hands[1] = c(HEARTS, 2) | c(HEARTS, 5);
+
+        let legal = state.get_legal_moves();
+
+        assert_eq!(legal, c(HEARTS, 2));
+    }
+
+    #[test]
+    fn test_trump_lead_play_any_trump_if_cannot_go_higher_full() {
+        let mut state = PlayingState::new(HEARTS);
+
+        // P0 leads 9 Hearts (Master Trump, Strength 6)
+        state.play_card(idx(HEARTS, 2));
+
+        // P1 has 10H (Strength 4) and QH (Strength 2).
+        // Cannot beat 9H. Must follow.
+        state.hands[1] = c(HEARTS, 3) | c(HEARTS, 5);
+
+        let legal = state.get_legal_moves();
+
+        assert_eq!(legal, c(HEARTS, 3) | c(HEARTS, 5));
+    }
 }

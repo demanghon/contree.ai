@@ -1,29 +1,54 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { RouterOutlet } from '@angular/router';
-import { GameArenaComponent } from './components/game-arena/game-arena.component';
+import { GameService } from './services/game.service';
+import { GameTableComponent } from './components/game-table/game-table.component';
 
 @Component({
-    selector: 'app-root',
-    standalone: true,
-    imports: [CommonModule, RouterOutlet, FormsModule, GameArenaComponent],
-    templateUrl: './app.html',
-    styleUrl: './app.css',
+  selector: 'app-root',
+  standalone: true,
+  imports: [CommonModule, GameTableComponent],
+  template: `
+    <div class="app-root">
+      @if (!gameStarted()) {
+        <div class="start-screen">
+          <h1>Coinche Master</h1>
+          <button (click)="startGame()">Start New Game</button>
+        </div>
+      } @else {
+        <app-game-table></app-game-table>
+      }
+    </div>
+  `,
+  styles: [`
+    .app-root {
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+    }
+    .start-screen {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        background: #111;
+        color: white;
+    }
+    button {
+        font-size: 1.5rem;
+        padding: 10px 30px;
+        cursor: pointer;
+    }
+  `]
 })
 export class AppComponent {
-    title = 'coinche-player';
-    dotInput: string = '';
-    gameLoaded: boolean = false;
+  private gameService = inject(GameService);
+  
+  gameStarted = computed(() => !!this.gameService.gameState());
 
-    loadGame() {
-        if (this.dotInput && this.dotInput.trim().length > 0) {
-            this.gameLoaded = true;
-        }
-    }
-
-    resetGame() {
-        this.gameLoaded = false;
-        this.dotInput = '';
-    }
+  startGame() {
+    this.gameService.createGame();
+  }
 }
+
+import { computed } from '@angular/core';
