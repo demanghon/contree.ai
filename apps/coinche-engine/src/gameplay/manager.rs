@@ -1,5 +1,6 @@
 use crate::gameplay::bidding::{Bid, BiddingState};
 use crate::gameplay::playing::PlayingState;
+use pyo3::prelude::*;
 
 #[derive(Debug, Clone)]
 pub enum Phase {
@@ -8,25 +9,36 @@ pub enum Phase {
     Finished(MatchResult),
 }
 
+#[pyclass]
 #[derive(Debug, Clone)]
 pub struct MatchResult {
+    #[pyo3(get)]
     pub contract: Option<Bid>,
+    #[pyo3(get)]
     pub contract_owner: Option<u8>,
+    #[pyo3(get)]
     pub points_ns: i16,
+    #[pyo3(get)]
     pub points_ew: i16,
+    #[pyo3(get)]
     pub contract_made: bool,
 }
 
+#[pyclass]
 pub struct CoincheMatch {
     pub phase: Phase,
+    #[pyo3(get)]
     pub dealer: u8,
+    #[pyo3(get)]
     pub hands: [u32; 4],
+    #[pyo3(get)]
     pub contract: Option<Bid>,
+    #[pyo3(get)]
     pub contract_owner: Option<u8>,
 }
 
 impl CoincheMatch {
-    pub fn new(dealer: u8, hands: [u32; 4]) -> Self {
+    pub fn new_rs(dealer: u8, hands: [u32; 4]) -> Self {
         Self {
             phase: Phase::Bidding(BiddingState::new(dealer)),
             dealer,
@@ -35,19 +47,32 @@ impl CoincheMatch {
             contract_owner: None,
         }
     }
+}
 
-    pub fn bid(&mut self, bid: Option<Bid>) -> Result<(), &'static str> {
+#[pymethods]
+impl CoincheMatch {
+    #[new]
+    pub fn new(dealer: u8, hands: Vec<u32>) -> PyResult<Self> {
+        if hands.len() != 4 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Hands must have 4 entries",
+            ));
+        }
+        let h: [u32; 4] = hands.try_into().unwrap();
+        Ok(CoincheMatch::new_rs(dealer, h))
+    }
+
+    pub fn bid(&mut self, bid: Option<Bid>) -> PyResult<()> {
         if let Phase::Bidding(ref mut state) = self.phase {
-            state.apply_bid(bid)?;
+            state
+                .apply_bid(bid)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
 
             if state.is_finished() {
-                // Determine next phase
                 if let Some(final_contract) = state.contract {
-                    // Contract established
                     self.contract = Some(final_contract);
                     self.contract_owner = state.contract_owner;
 
-                    // Transition to Playing
                     let mut game = PlayingState::new(final_contract.trump);
                     game.hands = self.hands;
                     game.current_player = (self.dealer + 1) % 4;
@@ -55,7 +80,6 @@ impl CoincheMatch {
 
                     self.phase = Phase::Playing(game);
                 } else {
-                    // Everyone passed
                     self.phase = Phase::Finished(MatchResult {
                         contract: None,
                         contract_owner: None,
@@ -67,44 +91,33 @@ impl CoincheMatch {
             }
             Ok(())
         } else {
-            Err("Not in bidding phase")
+            Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Not in bidding phase",
+            ))
         }
     }
 
-    pub fn play_card(&mut self, card: u8) -> Result<(), &'static str> {
+    pub fn play_card(&mut self, card: u8) -> PyResult<()> {
         if let Phase::Playing(ref mut state) = self.phase {
             let legal = state.get_legal_moves();
             if (legal & (1 << card)) == 0 {
-                return Err("Illegal move");
+                return Err(pyo3::exceptions::PyValueError::new_err("Illegal move"));
             }
 
             state.play_card(card);
 
             if state.is_terminal() {
-                // Game Over - Calculate Final Results
-                // Note: state.points contains card points + bonuses (belote, capot, etc)
-                // We need to add contract points if made.
-
                 let ns_score = state.points[0] as i16;
                 let ew_score = state.points[1] as i16;
-                // Basic logic: check if contract owner made enough points
-                // This is a simplified check. Real Belote rules are more complex (litige, capot, etc).
-
-                let contract = self.contract.unwrap(); // Must exist if we played
+                let contract = self.contract.unwrap();
                 let owner = self.contract_owner.unwrap();
                 let threshold = contract.value as i16;
 
-                let (owner_score, _defender_score) = if owner % 2 == 0 {
+                let (owner_score, _) = if owner % 2 == 0 {
                     (ns_score, ew_score)
                 } else {
                     (ew_score, ns_score)
                 };
-
-                // Simple rule: Owner must score >= (162 + bonuses) / 2 ? No, owner asks for points.
-                // Contree rule: Owner must score >= Contract Value?
-                // Standard Coinche: Owner must make contract AND score > defenders.
-                // Let's assume the contract value IS the target.
-
                 let contract_made = owner_score >= threshold;
 
                 self.phase = Phase::Finished(MatchResult {
@@ -117,7 +130,42 @@ impl CoincheMatch {
             }
             Ok(())
         } else {
-            Err("Not in playing phase")
+            Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Not in playing phase",
+            ))
+        }
+    }
+
+    // Accessors for Phase info
+    pub fn phase_name(&self) -> String {
+        match self.phase {
+            Phase::Bidding(_) => "BIDDING".to_string(),
+            Phase::Playing(_) => "PLAYING".to_string(),
+            Phase::Finished(_) => "FINISHED".to_string(),
+        }
+    }
+
+    pub fn get_bidding_state(&self) -> Option<BiddingState> {
+        if let Phase::Bidding(ref s) = self.phase {
+            Some(s.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn get_playing_state(&self) -> Option<PlayingState> {
+        if let Phase::Playing(ref s) = self.phase {
+            Some(s.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn get_result(&self) -> Option<MatchResult> {
+        if let Phase::Finished(ref r) = self.phase {
+            Some(r.clone())
+        } else {
+            None
         }
     }
 }
@@ -144,7 +192,7 @@ mod tests {
         hands[2] = 1 << card(HEARTS, 0); // 7H
         hands[3] = 1 << card(HEARTS, 1); // 8H
 
-        let mut m = CoincheMatch::new(0, hands); // Dealer P0 -> starts P1
+        let mut m = CoincheMatch::new_rs(0, hands); // Dealer P0 -> starts P1
 
         // P1 bids 80 Spades
         m.bid(Some(Bid::new(80, SPADES))).unwrap();

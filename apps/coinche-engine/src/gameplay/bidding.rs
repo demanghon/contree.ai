@@ -1,31 +1,44 @@
 //! Contree bidding rules implementation.
 
 use crate::gameplay::playing::PlayingState;
+use pyo3::prelude::*;
 
 /// Represents a Contree bid.
+#[pyclass]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Bid {
     /// Bid value in points (e.g., 80, 90, ... 160).
+    #[pyo3(get, set)]
     pub value: u8,
     /// Trump suit: 0=Clubs,1=Spades,2=Hearts,3=Clubs,4=NoTrump,5=AllTrump (same encoding as PlayingState).
+    #[pyo3(get, set)]
     pub trump: u8,
 }
 
+#[pymethods]
 impl Bid {
     /// Create a new bid.
+    #[new]
     pub fn new(value: u8, trump: u8) -> Self {
         Self { value, trump }
     }
 }
 
 /// State of the bidding phase.
+#[pyclass]
 #[derive(Debug, Clone)]
 pub struct BiddingState {
+    #[pyo3(get)]
     pub history: Vec<Option<Bid>>, // None = Pass
+    #[pyo3(get)]
     pub current_player: u8,
+    #[pyo3(get)]
     pub contract: Option<Bid>,
+    #[pyo3(get)]
     pub contract_owner: Option<u8>,
+    #[pyo3(get)]
     pub coinche_level: u8, // 0=None, 1=Coinche, 2=Surcoinche
+    #[pyo3(get)]
     pub consecutive_passes: u8,
 }
 

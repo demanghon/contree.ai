@@ -79,6 +79,11 @@ fn solve_gameplay_batch(
 #[pymodule]
 fn coinche_engine(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<gameplay::playing::PlayingState>()?;
+    m.add_class::<gameplay::manager::CoincheMatch>()?;
+    m.add_class::<gameplay::manager::MatchResult>()?;
+    m.add_class::<gameplay::bidding::Bid>()?;
+    m.add_class::<gameplay::bidding::BiddingState>()?;
+
     m.add_function(wrap_pyfunction!(solve_game, m)?)?;
     m.add_function(wrap_pyfunction!(generate_bidding_hands, m)?)?;
     m.add_function(wrap_pyfunction!(solve_bidding_batch, m)?)?;

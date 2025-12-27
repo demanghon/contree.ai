@@ -37,7 +37,12 @@ The web-based frontend for human-vs-AI play.
 
 Scripts for running simulations and benchmarks.
 
-## 🛠️ Installation & Requirements
+### 5. `coinche-api` (Python)
+
+A standard REST API (FastAPI) to expose the engine features for external clients (e.g. Angular frontend).
+
+- **Role**: Game State Management, API Gateway.
+- **Key Dependencies**: `FastAPI`, `Uvicorn`, `Pydantic`.
 
 ### Prerequisites
 
@@ -130,3 +135,31 @@ nx run coinche-engine:generate-gameplay-data --samples=100000 --threads=8
 | `--batchSize` | Number of hands to solve in one batch (Bidding only). | `2,000`                        | Lower to `500-1000` to reduce RAM usage per thread.   |
 
 > **Note**: These commands use the `maturin` tool to compile the Rust code and then run the Python generation script.
+
+### Running the API Server
+
+To play against the engine via HTTP/JSON (used by the Angular App):
+
+1. **Install Engine & Dependencies**
+
+   ```bash
+   # Install engine into current env
+   cd apps/coinche-engine && maturin develop && cd ../..
+
+   # Install API dependencies (Pip)
+   pip install -r apps/coinche-api/requirements.txt
+
+   # OR Install via Conda
+   conda env create -f apps/coinche-api/environment.yml
+   conda activate coinche-api
+   cd apps/coinche-engine && maturin develop && cd ../..
+   ```
+
+2. **Start Server**
+
+   ```bash
+   uvicorn apps.coinche-api.main:app --host 0.0.0.0 --port 8000 --reload
+   ```
+
+3. **API Documentation**
+   Open [http://localhost:8000/docs](http://localhost:8000/docs) to see the Swagger UI.
