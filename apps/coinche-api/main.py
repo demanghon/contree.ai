@@ -47,12 +47,7 @@ def create_game(req: CreateGameRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
         
-    return {
-        "game_id": game_id, 
-        "dealer": match.dealer, 
-        "phase": match.phase_name(),
-        "hands": match.hands
-    }
+    return get_game(game_id)
 
 @app.get("/game/{game_id}")
 def get_game(game_id: str):
@@ -64,6 +59,8 @@ def get_game(game_id: str):
         "game_id": game_id,
         "phase": match.phase_name(),
         "dealer": match.dealer,
+        "coinche_level": match.coinche_level,
+        "contract_owner": match.contract_owner,
         "hands": match.hands 
     }
     
@@ -71,9 +68,9 @@ def get_game(game_id: str):
         bs = match.get_bidding_state()
         if bs:
             state["bidding"] = {
-                "history": [(b.value, b.trump) if b else None for b in bs.history],
+                "history": [{"value": b.value, "trump": b.trump} if b else None for b in bs.history],
                 "current_player": bs.current_player,
-                "contract": (bs.contract.value, bs.contract.trump) if bs.contract else None,
+                "contract": {"value": bs.contract.value, "trump": bs.contract.trump} if bs.contract else None,
                 "contract_owner": bs.contract_owner
             }
     elif match.phase_name() == "PLAYING":
@@ -86,10 +83,13 @@ def get_game(game_id: str):
                 "tricks_won": ps.tricks_won,
                 "points": ps.points,
                 "trick_starter": ps.trick_starter,
-                "legal_moves": ps.get_legal_moves()
+                "legal_moves": ps.get_legal_moves(),
+                "last_trick": ps.last_trick,
+                "last_trick_starter": ps.last_trick_starter,
+                "last_trick_winner": ps.last_trick_winner
             }
         
-        state["contract"] = (match.contract.value, match.contract.trump) if match.contract else None
+        state["contract"] = {"value": match.contract.value, "trump": match.contract.trump} if match.contract else None
         
     elif match.phase_name() == "FINISHED":
         res = match.get_result()
@@ -119,6 +119,30 @@ def bid(game_id: str, req: Optional[BidRequest] = None):
         raise HTTPException(status_code=400, detail=str(e))
         
     return get_game(game_id)
+
+@app.post("/game/{game_id}/coinche")
+def coinche(game_id: str):
+    if game_id not in games:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    match = games[game_id]
+    try:
+        match.coinche()
+        return get_game(game_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/game/{game_id}/surcoinche")
+def surcoinche(game_id: str):
+    if game_id not in games:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    match = games[game_id]
+    try:
+        match.surcoinche()
+        return get_game(game_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/game/{game_id}/play")
 def play_card(game_id: str, req: PlayCardRequest):

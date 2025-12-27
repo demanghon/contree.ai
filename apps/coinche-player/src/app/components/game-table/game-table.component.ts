@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, inject, signal, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { GameService } from '../../services/game.service';
 import { PlayerSpotComponent } from '../player-spot/player-spot.component';
@@ -26,7 +26,7 @@ import { BiddingPanelComponent } from '../bidding/bidding.component';
         </label>
         <span class="status">Phase: {{ phase() }} | Trump: {{ trumpSumbol() }}</span>
         @if (contract()) {
-            <span class="contract">Contract: {{ contract()?.value }} {{ getSuit(contract()?.trump) }}</span>
+            <span class="contract">Contract: {{ contract()?.value }} {{ getSuit(contract()?.trump) }} by P{{ contractOwner() }}</span>
         }
       </div>
 
@@ -48,6 +48,11 @@ import { BiddingPanelComponent } from '../bidding/bidding.component';
                     @for (card of currentTrick(); track card.player) {
                         <div class="trick-card" [class.p0]="card.player===0" [class.p1]="card.player===1" [class.p2]="card.player===2" [class.p3]="card.player===3">
                             <app-card [card]="card.card" [isLegal]="true"></app-card>
+                        </div>
+                    }
+                    @if (viewingLastTrick()) {
+                        <div class="next-trick-overlay">
+                            <button (click)="nextTrick()" class="next-btn">Next Trick</button>
                         </div>
                     }
                 </div>
@@ -127,6 +132,23 @@ import { BiddingPanelComponent } from '../bidding/bidding.component';
         text-align: center;
         pointer-events: auto;
     }
+    .next-trick-overlay {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 20;
+        pointer-events: auto;
+    }
+    .next-btn {
+        padding: 10px 20px;
+        font-size: 1.2em;
+        background: #ffcc00;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    }
   `]
 })
 export class GameTableComponent {
@@ -134,21 +156,49 @@ export class GameTableComponent {
 
   phase = computed(() => this.gameService.gameState()?.phase);
   contract = computed(() => this.gameService.gameState()?.contract);
+  contractOwner = computed(() => this.gameService.gameState()?.contract_owner || this.gameService.gameState()?.bidding?.contract_owner);
   result = computed(() => this.gameService.gameState()?.result);
+
+  viewingLastTrick = signal<boolean>(false);
+  
+  // Track last seen trick winner to detect changes
+  private lastSeenWinner = signal<number | undefined>(undefined);
+
+  constructor() {
+      effect(() => {
+          const state = this.gameService.gameState();
+          if (state?.playing?.last_trick_winner !== undefined) {
+              const winner = state.playing.last_trick_winner;
+              // If winner changed, it means a new trick finished.
+              if (winner !== this.lastSeenWinner()) {
+                  this.viewingLastTrick.set(true);
+                  this.lastSeenWinner.set(winner);
+              }
+          }
+      }, { allowSignalWrites: true });
+  }
 
   currentTrick = computed(() => {
       const state = this.gameService.gameState();
       if (!state || !state.playing) return [];
       
+      const showLast = this.viewingLastTrick();
+      const trickSource = showLast ? state.playing.last_trick : state.playing.current_trick;
+      
+      if (!trickSource) return [];
+
       const cards = [];
-      const trick = state.playing.current_trick;
       for (let i = 0; i < 4; i++) {
-          if (trick[i] !== 255) { // 255 or 0xFF is empty
-              cards.push({ player: i, card: this.decodeCard(trick[i]) });
+          if (trickSource[i] !== 255) { // 255 or 0xFF is empty
+              cards.push({ player: i, card: this.decodeCard(trickSource[i]) });
           }
       }
       return cards;
   });
+
+  nextTrick() {
+      this.viewingLastTrick.set(false);
+  }
 
   toggleOmniscient() {
       this.gameService.isOmniscient.update(v => !v);

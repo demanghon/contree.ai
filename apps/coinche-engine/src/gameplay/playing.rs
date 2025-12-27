@@ -52,6 +52,12 @@ pub struct PlayingState {
     pub trick_size: u8,
     #[pyo3(get)]
     pub belote_scored: [bool; 2],
+    #[pyo3(get)]
+    pub last_trick: [u8; 4],
+    #[pyo3(get)]
+    pub last_trick_starter: u8,
+    #[pyo3(get)]
+    pub last_trick_winner: Option<u8>,
 }
 
 impl PlayingState {
@@ -66,6 +72,9 @@ impl PlayingState {
             trick_starter: 0,
             trick_size: 0,
             belote_scored: [false; 2],
+            last_trick: [255; 4],
+            last_trick_starter: 0,
+            last_trick_winner: None,
         }
     }
 }
@@ -325,6 +334,11 @@ impl PlayingState {
         }
 
         self.points[winning_team] += points;
+
+        // Store last trick
+        self.last_trick = self.current_trick;
+        self.last_trick_starter = self.trick_starter;
+        self.last_trick_winner = Some(winner);
 
         // Reset trick
         self.current_trick = [0xFF; 4];

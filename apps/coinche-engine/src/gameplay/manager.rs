@@ -29,12 +29,17 @@ pub struct CoincheMatch {
     pub phase: Phase,
     #[pyo3(get)]
     pub dealer: u8,
-    #[pyo3(get)]
-    pub hands: [u32; 4],
+    // hands removed here, moving to getter
     #[pyo3(get)]
     pub contract: Option<Bid>,
     #[pyo3(get)]
     pub contract_owner: Option<u8>,
+    #[pyo3(get)]
+    pub coinche_level: u8,
+
+    // Internal storage for initial hands (optional, or we can rely on phase state)
+    // We need to keep it for Bidding phase where state is inside enum.
+    pub initial_hands: [u32; 4],
 }
 
 impl CoincheMatch {
@@ -42,9 +47,10 @@ impl CoincheMatch {
         Self {
             phase: Phase::Bidding(BiddingState::new(dealer)),
             dealer,
-            hands,
+            initial_hands: hands,
             contract: None,
             contract_owner: None,
+            coinche_level: 0,
         }
     }
 }
@@ -63,37 +69,95 @@ impl CoincheMatch {
     }
 
     pub fn bid(&mut self, bid: Option<Bid>) -> PyResult<()> {
-        if let Phase::Bidding(ref mut state) = self.phase {
+        let (finished, level) = if let Phase::Bidding(ref mut state) = self.phase {
             state
                 .apply_bid(bid)
                 .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
-
-            if state.is_finished() {
-                if let Some(final_contract) = state.contract {
-                    self.contract = Some(final_contract);
-                    self.contract_owner = state.contract_owner;
-
-                    let mut game = PlayingState::new(final_contract.trump);
-                    game.hands = self.hands;
-                    game.current_player = (self.dealer + 1) % 4;
-                    game.trick_starter = game.current_player;
-
-                    self.phase = Phase::Playing(game);
-                } else {
-                    self.phase = Phase::Finished(MatchResult {
-                        contract: None,
-                        contract_owner: None,
-                        points_ns: 0,
-                        points_ew: 0,
-                        contract_made: false,
-                    });
-                }
-            }
-            Ok(())
+            (state.is_finished(), state.coinche_level)
         } else {
-            Err(pyo3::exceptions::PyRuntimeError::new_err(
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
                 "Not in bidding phase",
-            ))
+            ));
+        };
+
+        self.coinche_level = level;
+        if finished {
+            self.transition_from_bidding();
+        }
+        Ok(())
+    }
+
+    pub fn coinche(&mut self) -> PyResult<()> {
+        let (finished, level) = if let Phase::Bidding(ref mut state) = self.phase {
+            state
+                .coinche()
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
+            (state.is_finished(), state.coinche_level)
+        } else {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Not in bidding phase",
+            ));
+        };
+
+        self.coinche_level = level;
+        if finished {
+            self.transition_from_bidding();
+        }
+        Ok(())
+    }
+
+    pub fn surcoinche(&mut self) -> PyResult<()> {
+        let (finished, level) = if let Phase::Bidding(ref mut state) = self.phase {
+            state
+                .surcoinche()
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
+            (state.is_finished(), state.coinche_level)
+        } else {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Not in bidding phase",
+            ));
+        };
+
+        self.coinche_level = level;
+        if finished {
+            self.transition_from_bidding();
+        }
+        Ok(())
+    }
+
+    fn transition_from_bidding(&mut self) {
+        if let Phase::Bidding(ref state) = self.phase {
+            if let Some(final_contract) = state.contract {
+                // Determine logic for Coinche multiplier?
+                // Rules usually say multiplier applies to score.
+                // We'll store it in the match result or pass it to PlayingState?
+                // For now, let's just transition. Score multiplier should be handled in Play/Result.
+                // NOTE: PlayingState doesn't currently store coinche_level.
+                // We might need to add it to PlayingState if scoring depends on it.
+                // checking PlayingState in playing.rs...
+
+                self.contract = Some(final_contract);
+                self.contract_owner = state.contract_owner;
+
+                let mut game = PlayingState::new(final_contract.trump);
+                game.hands = self.initial_hands;
+                game.current_player = (self.dealer + 1) % 4;
+                game.trick_starter = game.current_player;
+                // Passing coinche info?
+                // PlayingState needs to know about coinche for scoring (160 * 2 etc).
+                // Let's assume for now we just handle mechanics, scoring update later if needed.
+                // Wait, User asked for "Option to Contre". Logic must follow.
+
+                self.phase = Phase::Playing(game);
+            } else {
+                self.phase = Phase::Finished(MatchResult {
+                    contract: None,
+                    contract_owner: None,
+                    points_ns: 0,
+                    points_ew: 0,
+                    contract_made: false,
+                });
+            }
         }
     }
 
@@ -166,6 +230,15 @@ impl CoincheMatch {
             Some(r.clone())
         } else {
             None
+        }
+    }
+
+    #[getter]
+    pub fn hands(&self) -> [u32; 4] {
+        match self.phase {
+            Phase::Bidding(_) => self.initial_hands,
+            Phase::Playing(ref p) => p.hands,
+            Phase::Finished(_) => [0; 4],
         }
     }
 }

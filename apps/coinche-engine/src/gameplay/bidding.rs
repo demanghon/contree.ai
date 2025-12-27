@@ -80,11 +80,50 @@ impl BiddingState {
         Ok(())
     }
 
+    pub fn coinche(&mut self) -> Result<(), &'static str> {
+        if self.contract.is_none() {
+            return Err("No contract to coinche");
+        }
+        if self.coinche_level > 0 {
+            return Err("Already coinched");
+        }
+
+        let owner = self.contract_owner.unwrap();
+        if self.current_player % 2 == owner % 2 {
+            return Err("Cannot coinche your own team");
+        }
+
+        self.coinche_level = 1;
+        self.consecutive_passes = 0;
+        self.current_player = (self.current_player + 1) % 4;
+        Ok(())
+    }
+
+    pub fn surcoinche(&mut self) -> Result<(), &'static str> {
+        if self.coinche_level != 1 {
+            return Err("Can only surcoinche after a coinche");
+        }
+
+        let owner = self.contract_owner.unwrap();
+        if self.current_player % 2 != owner % 2 {
+            return Err("Only the contract owner team can surcoinche");
+        }
+
+        self.coinche_level = 2;
+        self.consecutive_passes = 0;
+        self.current_player = (self.current_player + 1) % 4;
+        Ok(())
+    }
+
     pub fn is_finished(&self) -> bool {
         // Auction ends if:
         // 1. 3 consecutive passes AFTER a contract is established.
         // 2. 4 consecutive passes at the START (everyone passes).
-        // 3. Surcoinche happened (not implemented fully here yet, but standard rule).
+        // 3. Surcoinche happened (Standard rule: bidding ends immediately).
+        if self.coinche_level == 2 {
+            return true;
+        }
+
         if self.contract.is_some() {
             self.consecutive_passes >= 3
         } else {
@@ -98,7 +137,7 @@ impl BiddingState {
 /// for equal values the suit order is Clubs < Diamonds < Hearts < Spades < AllTrump < NoTrump.
 pub fn legal_bids(current: Option<Bid>) -> Vec<Bid> {
     // All possible values and suits.
-    const VALUES: [u8; 9] = [80, 90, 100, 110, 120, 130, 140, 150, 160];
+    const VALUES: [u8; 10] = [80, 90, 100, 110, 120, 130, 140, 150, 160, 252];
     const SUITS: [u8; 6] = [0, 1, 2, 3, 4, 5]; // same encoding as PlayingState constants.
 
     let mut bids = Vec::new();

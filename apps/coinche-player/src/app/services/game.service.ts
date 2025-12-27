@@ -23,12 +23,17 @@ export interface PlayingState {
   points: number[];
   trick_starter: number;
   legal_moves: number; // bitmask
+  last_trick?: number[];
+  last_trick_starter?: number;
+  last_trick_winner?: number;
 }
 
 export interface GameState {
   game_id: string;
   phase: 'BIDDING' | 'PLAYING' | 'FINISHED';
   dealer: number;
+  coinche_level?: number;
+  contract_owner?: number;
   hands?: number[]; // [u32] for 4 players if available (we will parse this)
   
   bidding?: BiddingState;
@@ -90,6 +95,22 @@ export class GameService {
     const state = this.gameState();
     if (!state) return;
     return this.http.post<GameState>(`${this.apiUrl}/game/${state.game_id}/bid`, null).pipe(
+      tap(res => this.gameState.set(res))
+    ).subscribe();
+  }
+
+  coinche() {
+    const state = this.gameState();
+    if (!state) return;
+    return this.http.post<GameState>(`${this.apiUrl}/game/${state.game_id}/coinche`, {}).pipe(
+      tap(res => this.gameState.set(res))
+    ).subscribe();
+  }
+
+  surcoinche() {
+    const state = this.gameState();
+    if (!state) return;
+    return this.http.post<GameState>(`${this.apiUrl}/game/${state.game_id}/surcoinche`, {}).pipe(
       tap(res => this.gameState.set(res))
     ).subscribe();
   }
