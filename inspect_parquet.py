@@ -2,7 +2,7 @@
 import pandas as pd
 
 try:
-    df = pd.read_parquet("dataset/simple_bidding_dataset.parquet")
+    df = pd.read_parquet("dataset/simple_gameplay_dataset.parquet")
     print("Columns:", df.columns.tolist())
     print("\nFirst row:")
     print(df.iloc[0])
