@@ -134,20 +134,25 @@ fn compute_zobrist_hash(state: &PlayingState) -> u64 {
 // Simpler: Eval = state.points[0] + MaterialHeuristic(Team0) - MaterialHeuristic(Team1)?
 // Let's use a weighted material sum.
 fn evaluate_state(state: &PlayingState) -> i16 {
-    // Current locked points
-    let current_score = state.points[0] as i16;
+    let current_score = state.points[0] as i32;
+    let opponent_score = state.points[1] as i32;
 
-    // Estimated future points based on material
-    let mut future_score: i32 = 0;
+    // Total points in a standard game is 162 (excluding Belote)
+    // Remaining points to fight for
+    let remaining_points = 162 - current_score - opponent_score;
 
-    // Constants from playing.rs (inlined or referenced)
-    // We'll approximate or use raw points + control bonus
+    if remaining_points <= 0 {
+        return current_score as i16;
+    }
+
+    let mut strength0: i32 = 0;
+    let mut strength1: i32 = 0;
+
     let trump = state.trump;
 
     for p in 0..4 {
         let mut hand = state.hands[p];
         let is_team0 = p % 2 == 0;
-        let factor = if is_team0 { 1 } else { -1 };
 
         while hand != 0 {
             let c = hand.trailing_zeros() as u8;
@@ -157,14 +162,10 @@ fn evaluate_state(state: &PlayingState) -> i16 {
             let r = (c % 8) as usize;
 
             let val;
-            let control; // Bonus for trick-taking power
+            let control;
 
             if s == trump {
                 val = crate::gameplay::playing::POINTS_TRUMP[r] as i32;
-                // High trumps are worth more than points: J (20) dominates, 9 (14) next.
-                // A normal naive eval just counts points.
-                // A better one adds "Control Value".
-                // J Trump is almost guaranteed to win a trick (+10-20 pts).
                 control = match r {
                     4 => 50, // J
                     2 => 35, // 9
@@ -176,7 +177,6 @@ fn evaluate_state(state: &PlayingState) -> i16 {
                 };
             } else {
                 val = crate::gameplay::playing::POINTS_NON_TRUMP[r] as i32;
-                // Aces are huge. 10s are huge.
                 control = match r {
                     7 => 30, // A
                     3 => 20, // 10
@@ -185,18 +185,24 @@ fn evaluate_state(state: &PlayingState) -> i16 {
                 };
             }
 
-            future_score += factor * (val + control);
+            // Add to respective team's strength
+            if is_team0 {
+                strength0 += val + control;
+            } else {
+                strength1 += val + control;
+            }
         }
     }
 
-    // We need to scale future_score to be roughly compatible with real points?
-    // Not strictly necessary if it preserves order, but for A/B pruning against exact bounds it helps.
-    // Normalized result: Score + Future
-    // Since Coinche total points ~162. Our material sum includes "Control" which inflates it.
-    // It's a heuristic.
-    // Let's rely on relative values.
+    // Calculate expected additional points based on strength ratio
+    let total_strength = strength0 + strength1;
+    let estimated_future = if total_strength > 0 {
+        (remaining_points * strength0) / total_strength
+    } else {
+        remaining_points / 2 // Fallback if no cards valuable (unlikely)
+    };
 
-    current_score + (future_score / 2) as i16 // Damping factor
+    (current_score + estimated_future) as i16
 }
 
 // Iterative Deepening Solve
