@@ -159,7 +159,7 @@ pub fn solve_gameplay_batch(
     history: Vec<u32>,
     trumps: Vec<u8>,
     tricks_won: Vec<Vec<u8>>,
-    players: Vec<u8>,
+    pimc_iterations: usize,
 ) -> (Vec<u8>, Vec<i16>, Vec<bool>) {
     // flattened_hands is size N*4.
     let num_samples = boards.len();
@@ -167,7 +167,7 @@ pub fn solve_gameplay_batch(
     let results: Vec<SolvedGameplaySample> = (0..num_samples)
         .into_par_iter()
         .map(|i| {
-            // Reconstruct State
+            // ... Reconstruct State ...
             let mut state = PlayingState::new(trumps[i]);
 
             // Reconstruct hands
@@ -192,12 +192,13 @@ pub fn solve_gameplay_batch(
             }
 
             for (idx, &card) in boards[i].iter().enumerate() {
+                // ...
                 let start_player = state.trick_starter as usize;
                 let seat = (start_player + idx) % 4;
                 state.current_trick[seat] = card;
             }
 
-            if state.is_terminal() {
+            if state.is_terminal() || state.get_legal_moves() == 0 {
                 return SolvedGameplaySample {
                     best_card: 0,
                     best_score: 0,
@@ -205,23 +206,88 @@ pub fn solve_gameplay_batch(
                 };
             }
 
-            // Guard: if the current player has no legal moves (e.g., empty hand), treat as invalid
-            if state.get_legal_moves() == 0 {
-                return SolvedGameplaySample {
-                    best_card: 0,
-                    best_score: 0,
-                    valid: false,
-                };
-            }
+            // PIMC Logic
+            if pimc_iterations > 1 {
+                let mut rng = rand::thread_rng();
+                let mut votes = [0; 32];
 
-            // PERTURBATION REMOVED: Fast Path Only
-            // Just solve once for best move
-            let (best_score, best_card) = solve(&state, false);
+                // Identify hidden cards (belonging to others)
+                let mut hidden_cards = Vec::new();
+                let my_player = state.current_player as usize;
 
-            SolvedGameplaySample {
-                best_card,
-                best_score,
-                valid: true,
+                let mut hand_sizes = [0; 4];
+
+                for p in 0..4 {
+                    hand_sizes[p] = state.hands[p].count_ones(); // u32::count_ones
+                    if p != my_player {
+                        let mut h = state.hands[p];
+                        while h != 0 {
+                            let c = h.trailing_zeros();
+                            hidden_cards.push(c);
+                            h &= !(1 << c);
+                        }
+                    }
+                }
+
+                if hidden_cards.is_empty() {
+                    // No hidden info (e.g. 2 players left or all revealed?), just solve
+                    let (best_score, best_card) = solve(&state, false);
+                    return SolvedGameplaySample {
+                        best_card,
+                        best_score,
+                        valid: true,
+                    };
+                }
+
+                for _ in 0..pimc_iterations {
+                    // Shuffle
+                    hidden_cards.shuffle(&mut rng);
+
+                    // Re-deal consistent with counts
+                    let mut temp_state = state.clone();
+                    let mut idx = 0;
+                    for p in 0..4 {
+                        if p != my_player {
+                            let mut new_hand = 0;
+                            let count = hand_sizes[p];
+                            for _ in 0..count {
+                                new_hand |= 1 << hidden_cards[idx];
+                                idx += 1;
+                            }
+                            temp_state.hands[p] = new_hand;
+                        }
+                    }
+
+                    let (_, move_) = solve(&temp_state, false);
+                    votes[move_ as usize] += 1;
+                }
+
+                // Majority Vote
+                let mut max_votes = -1;
+                let mut best_card_pimc = 0;
+                for c in 0..32 {
+                    if votes[c] > max_votes {
+                        max_votes = votes[c];
+                        best_card_pimc = c as u8;
+                    }
+                }
+
+                // Score: Use Perfect Information Value of the TRUE state
+                let (best_score, _) = solve(&state, false);
+
+                SolvedGameplaySample {
+                    best_card: best_card_pimc,
+                    best_score,
+                    valid: true,
+                }
+            } else {
+                // Determine Double Dummy
+                let (best_score, best_card) = solve(&state, false);
+                SolvedGameplaySample {
+                    best_card,
+                    best_score,
+                    valid: true,
+                }
             }
         })
         .collect();

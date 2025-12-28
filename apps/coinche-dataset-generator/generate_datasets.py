@@ -7,9 +7,9 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-def generate_datasets(bidding_samples, gameplay_samples, bidding_output_dir, gameplay_file, batch_size=1000):
+def generate_datasets(bidding_samples, gameplay_samples, bidding_output_dir, gameplay_file, batch_size=1000, pimc_iterations=0):
     import coinche_engine
-    print(f"Starting data generation...")
+    print(f"Starting data generation (PIMC={pimc_iterations})...")
     
     # --- BIDDING DATA GENERATION (Crash Resilient) ---
     if bidding_samples > 0:
@@ -88,7 +88,7 @@ def generate_datasets(bidding_samples, gameplay_samples, bidding_output_dir, gam
                 
                 try:
                     # Returns List[List[int]] (scores per sample)
-                    scores_batch = coinche_engine.solve_bidding_batch(hands_slice_list)
+                    scores_batch = coinche_engine.solve_bidding_batch(hands_slice_list, pimc_iterations)
                 except Exception as e:
                     print(f"Error solving batch {i}: {e}")
                     break
@@ -303,7 +303,8 @@ def generate_datasets(bidding_samples, gameplay_samples, bidding_output_dir, gam
                         history_col,
                         trumps_col,
                         tricks_won_col,
-                        players_col
+                        players_col,
+                        pimc_iterations
                     )
                     
                     # Filter invalid results (forced moves etc)
@@ -422,6 +423,7 @@ if __name__ == "__main__":
     parser.add_argument("--gameplay-output", type=str, default="../../dist/datasets/gameplay_data.parquet", help="Output file for gameplay data")
     parser.add_argument("--batch-size", type=int, default=10000, help="Batch size for solving")
     parser.add_argument("--threads", type=int, default=None, help="Number of threads to use (limit CPU usage)")
+    parser.add_argument("--pimc", type=int, default=0, help="Number of PIMC iterations per hand (Bidding & Gameplay). 0 = Double Dummy.")
     
     args = parser.parse_args()
 
@@ -435,7 +437,8 @@ if __name__ == "__main__":
             args.gameplay_samples, 
             args.bidding_output, 
             args.gameplay_output,
-            args.batch_size
+            args.batch_size,
+            args.pimc
         )
     except KeyboardInterrupt:
         print("\n\n⚠️ Generation interrupted by user.")

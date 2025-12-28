@@ -24,9 +24,13 @@ fn generate_bidding_hands(num_samples: usize) -> PyResult<(Vec<u32>, Vec<u8>)> {
 }
 
 #[pyfunction]
-fn solve_bidding_batch(py: Python, hands: Vec<u32>) -> PyResult<Vec<Vec<i16>>> {
+fn solve_bidding_batch(
+    py: Python,
+    hands: Vec<u32>,
+    pimc_iterations: usize,
+) -> PyResult<Vec<Vec<i16>>> {
     py.allow_threads(|| {
-        let scores = solve_hand_batch(hands);
+        let scores = solve_hand_batch(hands, pimc_iterations);
         Ok(scores)
     })
 }
@@ -67,10 +71,18 @@ fn solve_gameplay_batch(
     trumps: Vec<u8>,
     tricks_won: Vec<Vec<u8>>,
     players: Vec<u8>,
+    pimc_iterations: usize,
 ) -> PyResult<(Vec<u8>, Vec<i16>, Vec<bool>)> {
     py.allow_threads(|| {
-        let (best_cards, best_scores, valid) =
-            solve_gameplay_impl(hands, boards, history, trumps, tricks_won, players);
+        let (best_cards, best_scores, valid) = solve_gameplay_impl(
+            hands,
+            boards,
+            history,
+            trumps,
+            tricks_won,
+            players,
+            pimc_iterations,
+        );
         Ok((best_cards, best_scores, valid))
     })
 }

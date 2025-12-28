@@ -13,11 +13,12 @@
                 }
             ],
             "options": {
-                "command": "../../.venv/bin/python generate_datasets.py --gameplay-samples=0 --bidding-output=../../dist/datasets/bidding_data --bidding-samples={args.samples} --batch-size={args.batchSize} --threads={args.threads}",
+                "command": "../../.venv/bin/python generate_datasets.py --gameplay-samples=0 --bidding-output=../../dist/datasets/bidding_data --bidding-samples={args.samples} --batch-size={args.batchSize} --threads={args.threads} --pimc={args.pimc}",
                 "cwd": "apps/coinche-dataset-generator",
                 "samples": 50000,
                 "batchSize": 2000,
-                "threads": 4
+                "threads": 4,
+                "pimc": 0
             }
         },
         "generate-gameplay": {
@@ -29,11 +30,12 @@
                 }
             ],
             "options": {
-                "command": "../../.venv/bin/python generate_datasets.py --bidding-samples=0 --gameplay-output=../../dist/datasets/gameplay_data.parquet --gameplay-samples={args.samples} --threads={args.threads} --batch-size={args.batchSize}",
+                "command": "../../.venv/bin/python generate_datasets.py --bidding-samples=0 --gameplay-output=../../dist/datasets/gameplay_data.parquet --gameplay-samples={args.samples} --threads={args.threads} --batch-size={args.batchSize} --pimc={args.pimc}",
                 "cwd": "apps/coinche-dataset-generator",
                 "samples": 100000,
                 "threads": 4,
-                "batchSize": 2000
+                "batchSize": 2000,
+                "pimc": 0
             }
         },
         "verify": {

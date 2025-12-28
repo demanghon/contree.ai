@@ -137,6 +137,7 @@ nx run coinche-dataset-generator:generate-gameplay --samples=100000 --threads=8
 | Argument      | Description                                           | Default                        | Recommended Usage                                     |
 | ------------- | ----------------------------------------------------- | ------------------------------ | ----------------------------------------------------- |
 | `--samples`   | Total number of samples to generate.                  | `10,000`                       | Increase to `100,000`+ for training.                  |
+| `--pimc`      | Number of PIMC iterations per hand.                   | `0` (Double Dummy)             | Use `20` for robust labels/values. Increases time!    |
 | `--threads`   | Number of CPU threads to use.                         | `4` (Bidding) / `1` (Gameplay) | Set to roughly `CPU Cores - 2`. Reduce if OOM occurs. |
 | `--batchSize` | Number of hands to solve in one batch (Bidding only). | `2,000`                        | Lower to `500-1000` to reduce RAM usage per thread.   |
 

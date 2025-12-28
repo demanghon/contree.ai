@@ -68,7 +68,7 @@ pub fn generate_hand_batch(batch_size: usize) -> (Vec<u32>, Vec<u8>) {
     (flattened_hands, strategies)
 }
 
-pub fn solve_hand_batch(flattened_hands: Vec<u32>) -> Vec<Vec<i16>> {
+pub fn solve_hand_batch(flattened_hands: Vec<u32>, pimc_iterations: usize) -> Vec<Vec<i16>> {
     // flattened_hands length should be divisible by 4
     let num_samples = flattened_hands.len() / 4;
 
@@ -82,18 +82,71 @@ pub fn solve_hand_batch(flattened_hands: Vec<u32>) -> Vec<Vec<i16>> {
             let mut hands = [0u32; 4];
             hands.copy_from_slice(hand_chunk);
 
-            let mut scores = Vec::with_capacity(4);
             // Contracts: 0=D, 1=S, 2=H, 3=C (No NT/AT)
-            for trump in 0..4 {
-                let mut state = PlayingState::new(trump as u8);
-                state.hands = hands;
+            if pimc_iterations > 1 {
+                // PIMC Logic: Ignore other hands, regenerate world based on South Hand
+                let south_hand = hands[0];
+                let mut unseen_cards = Vec::with_capacity(24);
+                for c in 0..32 {
+                    if (south_hand & (1 << c)) == 0 {
+                        unseen_cards.push(c);
+                    }
+                }
 
-                // Solver returns (score, best_move). Score is for the current player's team.
-                // At root, current player is 0 (South). So score is NS score.
-                let (score, _) = solve(&state, false);
-                scores.push(score);
+                let mut rng = rand::thread_rng();
+                let mut scores = Vec::with_capacity(4);
+
+                for trump in 0..4 {
+                    let mut total_score: i32 = 0;
+
+                    // Optimization: We can reuse the same shuffled buffer if careful, but shuffle overwrites order.
+
+                    for _ in 0..pimc_iterations {
+                        unseen_cards.shuffle(&mut rng);
+
+                        let mut state = PlayingState::new(trump as u8);
+                        state.hands[0] = south_hand;
+
+                        // Distribute 8 to West, 8 to North, 8 to East
+                        // (Indices 0..8, 8..16, 16..24)
+                        // Manual unroll or loop
+                        let mut w = 0;
+                        for i in 0..8 {
+                            w |= 1 << unseen_cards[i];
+                        }
+                        state.hands[1] = w;
+
+                        let mut n = 0;
+                        for i in 8..16 {
+                            n |= 1 << unseen_cards[i];
+                        }
+                        state.hands[2] = n;
+
+                        let mut e = 0;
+                        for i in 16..24 {
+                            e |= 1 << unseen_cards[i];
+                        }
+                        state.hands[3] = e;
+
+                        let (s, _) = solve(&state, false);
+                        total_score += s as i32;
+                    }
+
+                    let avg = (total_score as f32 / pimc_iterations as f32).round() as i16;
+                    scores.push(avg);
+                }
+                scores
+            } else {
+                // Double Dummy on specific deal
+                let mut scores = Vec::with_capacity(4);
+                for trump in 0..4 {
+                    let mut state = PlayingState::new(trump as u8);
+                    state.hands = hands; // Use the provided full deal
+                    let (score, _) = solve(&state, false);
+                    scores.push(score);
+                }
+                scores
             }
-            scores
         })
         .collect();
 
