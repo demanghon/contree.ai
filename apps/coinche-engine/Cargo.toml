@@ -6,7 +6,7 @@ authors = ["Jérôme Demanghon <demanghonj@gmail.com>"]
 
 [lib]
 name = "coinche_engine"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pyo3 = { version = "0.20.0" }
@@ -15,6 +15,7 @@ arrow = "53.0"
 rand = "0.8"
 rayon = "1.8"
 indicatif = { version = "0.17", features = ["rayon"] }
+lazy_static = "1.4"
 
 [features]
 extension-module = ["pyo3/extension-module"]

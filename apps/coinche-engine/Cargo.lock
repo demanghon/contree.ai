@@ -383,6 +383,7 @@ version = "0.1.0"
 dependencies = [
  "arrow",
  "indicatif",
+ "lazy_static",
  "parquet",
  "pyo3",
  "rand",

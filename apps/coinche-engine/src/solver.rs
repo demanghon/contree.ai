@@ -4,227 +4,302 @@ use std::collections::HashMap;
 
 const INF: i16 = 1000;
 
-// Transposition Table Entry
+use lazy_static::lazy_static;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+
+// Zobrist Keys
+struct ZobristTable {
+    // [player][card_index]
+    hand: [[u64; 32]; 4],
+    // [player][card_index] - Cards currently in trick
+    trick: [[u64; 32]; 4],
+    // [player] - Whose turn
+    turn: [u64; 4],
+    // [team] - If team has won at least one trick (makes opponent Capot impossible)
+    has_won_trick: [u64; 2],
+}
+
+impl ZobristTable {
+    fn new() -> Self {
+        let mut rng = StdRng::seed_from_u64(12345); // Fixed seed for reproducibility
+        let mut table = ZobristTable {
+            hand: [[0; 32]; 4],
+            trick: [[0; 32]; 4],
+            turn: [0; 4],
+            has_won_trick: [0; 2],
+        };
+
+        for p in 0..4 {
+            for c in 0..32 {
+                table.hand[p][c] = rng.gen();
+                table.trick[p][c] = rng.gen();
+            }
+            table.turn[p] = rng.gen();
+        }
+        table.has_won_trick[0] = rng.gen();
+        table.has_won_trick[1] = rng.gen();
+        table
+    }
+}
+
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+lazy_static! {
+    static ref ZOBRIST: ZobristTable = ZobristTable::new();
+}
+
+static TOTAL_NODES: AtomicU64 = AtomicU64::new(0);
+static TT_HITS: AtomicU64 = AtomicU64::new(0);
+static HAND_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+// Fixed-size TT
+const TT_SIZE: usize = 1 << 20; // 1 Million entries ~ 16MB
+const TT_MASK: u64 = (TT_SIZE as u64) - 1;
+
+#[derive(Clone, Copy)]
 struct TTEntry {
+    key: u64, // For collision detection
     score: i16,
     best_move: u8,
-    flag: u8, // 0: Exact, 1: Lowerbound, 2: Upperbound
-              // depth: u8, // Not strictly needed for end-game solver (always solves to end), but good practice
+    flag: u8,
+    depth: u8, // Added for Iterative Deepening
 }
 
-pub fn solve(state: &PlayingState, generate_graph: bool) -> (i16, u8) {
-    let mut tt = HashMap::new();
-    let (score, best_move) = minimax(state, -INF, INF, &mut tt);
-
-    if generate_graph {
-        generate_dot_file(state, &tt);
+impl Default for TTEntry {
+    fn default() -> Self {
+        TTEntry {
+            key: 0,
+            score: 0,
+            best_move: 0xFF,
+            flag: 0,
+            depth: 0, // Default depth
+        }
     }
-
-    (score, best_move)
 }
 
-fn generate_dot_file(root_state: &PlayingState, tt: &HashMap<u64, TTEntry>) {
-    use std::fs::File;
-    use std::io::Write;
+// Helper to check if we are solving the first hand (for debug stats)
+fn is_first_hand() -> bool {
+    HAND_COUNT.load(Ordering::Relaxed) == 0
+}
 
-    let mut file = File::create("tree.dot").expect("Unable to create file");
-    writeln!(file, "digraph GameTree {{").unwrap();
-    writeln!(file, "  node [shape=box, fontname=\"Courier\"];").unwrap();
+// Optimized Zobrist Hash using bit iteration
+fn compute_zobrist_hash(state: &PlayingState) -> u64 {
+    let mut h: u64 = 0;
 
-    // Helper to get move name
-    let get_card_name = |c: u8| -> String {
-        let suits = ["D", "S", "H", "C"];
-        let ranks = ["7", "8", "9", "10", "J", "Q", "K", "A"];
-        if c == 0xFF {
-            return "None".to_string();
-        }
-        format!("{}{}", ranks[(c % 8) as usize], suits[(c / 8) as usize])
-    };
-
-    // Helper to get hand string
-    let get_hand_str = |hand_mask: u32| -> String {
-        let mut cards = Vec::new();
-        for i in 0..32 {
-            if (hand_mask & (1 << i)) != 0 {
-                cards.push(get_card_name(i as u8));
-            }
-        }
-        if cards.is_empty() {
-            return "Empty".to_string();
-        }
-        cards.join(" ")
-    };
-
-    // Helper to get trick string
-    let get_trick_str = |trick: &[u8; 4]| -> String {
-        let mut parts = Vec::new();
-        for i in 0..4 {
-            if trick[i] != 0xFF {
-                parts.push(format!("P{}:{}", i, get_card_name(trick[i])));
-            }
-        }
-        if parts.is_empty() {
-            return "Empty".to_string();
-        }
-        parts.join(", ")
-    };
-
-    // 1. Find top moves at root
-    let legal_moves_mask = root_state.get_legal_moves();
-    let mut moves = Vec::new();
-
-    let is_maximizing = root_state.current_player % 2 == 0;
-
-    for i in 0..32 {
-        if (legal_moves_mask & (1 << i)) != 0 {
-            let mut next_state = root_state.clone();
-            next_state.play_card(i as u8);
-            let key = compute_hash(&next_state);
-
-            if let Some(entry) = tt.get(&key) {
-                moves.push((i as u8, entry.score));
-            }
+    // Hands - Iterate only set bits
+    for p in 0..4 {
+        let mut hand = state.hands[p];
+        while hand != 0 {
+            let i = hand.trailing_zeros();
+            h ^= ZOBRIST.hand[p][i as usize];
+            hand &= !(1 << i);
         }
     }
 
-    // Sort moves: Best first
-    if is_maximizing {
-        moves.sort_by(|a, b| b.1.cmp(&a.1));
-    } else {
-        moves.sort_by(|a, b| a.1.cmp(&b.1));
+    // Current Trick - Sparse (0-3 cards usually) - Loop is fine or unrolled
+    for p in 0..4 {
+        let card = state.current_trick[p];
+        if card != 0xFF {
+            h ^= ZOBRIST.trick[p][card as usize];
+        }
     }
 
-    // Take top 3
-    let top_moves = moves.into_iter().take(3).collect::<Vec<_>>();
+    // Turn
+    h ^= ZOBRIST.turn[state.current_player as usize];
 
-    let root_id = compute_hash(root_state);
-
-    // Root Label: Show all hands
-    let mut root_label = format!(
-        "ROOT\\nPlayer: {}\\nTrump: {}\\n",
-        root_state.current_player, root_state.trump
-    );
-    for i in 0..4 {
-        root_label.push_str(&format!("P{}: {}\\n", i, get_hand_str(root_state.hands[i])));
+    // Capot Potential
+    if state.tricks_won[0] > 0 {
+        h ^= ZOBRIST.has_won_trick[0];
     }
-    root_label.push_str(&format!(
-        "Trick: {}\\n",
-        get_trick_str(&root_state.current_trick)
-    ));
-    root_label.push_str(&format!(
-        "Points: NS={}, EW={}",
-        root_state.points[0], root_state.points[1]
-    ));
+    if state.tricks_won[1] > 0 {
+        h ^= ZOBRIST.has_won_trick[1];
+    }
 
-    writeln!(file, "  {} [label=\"{}\"];", root_id, root_label).unwrap();
+    h
+}
 
-    for (move_idx, score) in top_moves {
-        let mut current_state = root_state.clone();
-        current_state.play_card(move_idx);
+// Heuristic Evaluation
+// Returns estimated final score delta for Team 0 (NS) relative to current points?
+// No, minimax returns absolute score for Team 0.
+// So heuristic should return: Team0_Points + Estimate(Team0_Future)
+// But since we use score normalization (relative to current),
+// we want: Estimate(Team0_Future) - Estimate(Team1_Future)?
+// Actually, standard minimax returns the leaf value.
+// If we cut off, we return static evaluation of the state.
+// Static Eval = state.points[0] + MaterialDifference?
+// Coinche is zero-sum (total points fixed ~162).
+// So MAXimizing Player 0 wants to maximize Pts0. MINimizing Player 1 wants to minimize Pts0.
+// Eval = state.points[0] + (Material0 / (Material0 + Material1)) * RemainingPoints?
+// Simpler: Eval = state.points[0] + MaterialHeuristic(Team0) - MaterialHeuristic(Team1)?
+// Let's use a weighted material sum.
+fn evaluate_state(state: &PlayingState) -> i16 {
+    // Current locked points
+    let current_score = state.points[0] as i16;
 
-        let mut current_id = root_id;
-        let mut next_id = compute_hash(&current_state);
+    // Estimated future points based on material
+    let mut future_score: i32 = 0;
 
-        writeln!(
-            file,
-            "  {} -> {} [label=\"{} ({})\"];",
-            current_id,
-            next_id,
-            get_card_name(move_idx),
-            score
-        )
-        .unwrap();
+    // Constants from playing.rs (inlined or referenced)
+    // We'll approximate or use raw points + control bonus
+    let trump = state.trump;
 
-        // Node Label
-        let label = format!(
-            "Player: {}\\nTrick: {}\\nScore: {}\\nPoints: NS={}, EW={}",
-            current_state.current_player,
-            get_trick_str(&current_state.current_trick),
-            score,
-            current_state.points[0],
-            current_state.points[1]
-        );
-        writeln!(file, "  {} [label=\"{}\"];", next_id, label).unwrap();
+    for p in 0..4 {
+        let mut hand = state.hands[p];
+        let is_team0 = p % 2 == 0;
+        let factor = if is_team0 { 1 } else { -1 };
 
-        // Trace PV for this move
-        let mut depth = 0;
-        while depth < 32 {
-            if current_state.is_terminal() {
-                break;
-            }
+        while hand != 0 {
+            let c = hand.trailing_zeros() as u8;
+            hand &= !(1 << c);
 
-            let key = compute_hash(&current_state);
-            if let Some(entry) = tt.get(&key) {
-                if entry.best_move == 0xFF {
-                    break;
-                }
+            let s = c / 8;
+            let r = (c % 8) as usize;
 
-                let best_move = entry.best_move;
-                current_id = next_id;
+            let val;
+            let control; // Bonus for trick-taking power
 
-                current_state.play_card(best_move);
-                next_id = compute_hash(&current_state);
-
-                writeln!(
-                    file,
-                    "  {} -> {} [label=\"{}\"];",
-                    current_id,
-                    next_id,
-                    get_card_name(best_move)
-                )
-                .unwrap();
-
-                let label = format!(
-                    "Player: {}\\nTrick: {}\\nScore: {}\\nPoints: NS={}, EW={}",
-                    current_state.current_player,
-                    get_trick_str(&current_state.current_trick),
-                    entry.score,
-                    current_state.points[0],
-                    current_state.points[1]
-                );
-                writeln!(file, "  {} [label=\"{}\"];", next_id, label).unwrap();
-
-                depth += 1;
+            if s == trump {
+                val = crate::gameplay::playing::POINTS_TRUMP[r] as i32;
+                // High trumps are worth more than points: J (20) dominates, 9 (14) next.
+                // A normal naive eval just counts points.
+                // A better one adds "Control Value".
+                // J Trump is almost guaranteed to win a trick (+10-20 pts).
+                control = match r {
+                    4 => 50, // J
+                    2 => 35, // 9
+                    7 => 25, // A
+                    3 => 20, // 10
+                    6 => 15, // K
+                    5 => 10, // Q
+                    _ => 0,
+                };
             } else {
-                break;
+                val = crate::gameplay::playing::POINTS_NON_TRUMP[r] as i32;
+                // Aces are huge. 10s are huge.
+                control = match r {
+                    7 => 30, // A
+                    3 => 20, // 10
+                    6 => 10, // K
+                    _ => 0,
+                };
             }
+
+            future_score += factor * (val + control);
         }
     }
 
-    writeln!(file, "}}").unwrap();
+    // We need to scale future_score to be roughly compatible with real points?
+    // Not strictly necessary if it preserves order, but for A/B pruning against exact bounds it helps.
+    // Normalized result: Score + Future
+    // Since Coinche total points ~162. Our material sum includes "Control" which inflates it.
+    // It's a heuristic.
+    // Let's rely on relative values.
+
+    current_score + (future_score / 2) as i16 // Damping factor
 }
+
+// Iterative Deepening Solve
+pub fn solve(state: &PlayingState, generate_graph: bool) -> (i16, u8) {
+    let mut tt = vec![TTEntry::default(); TT_SIZE];
+
+    let is_first = HAND_COUNT.fetch_add(1, Ordering::Relaxed) == 0;
+    if is_first {
+        TOTAL_NODES.store(0, Ordering::Relaxed);
+        TT_HITS.store(0, Ordering::Relaxed);
+    }
+
+    let hash = compute_zobrist_hash(state);
+
+    // Iterative Deepening
+    // Max depth = remaining cards in hand?
+    // state.hands[0].count_ones() is cards per player.
+    // Total depth = 32? No, 8 tricks. Minimax depth is usually counted in ply (player moves).
+    // 8 tricks * 4 players = 32 ply max.
+
+    let cards_left = state.hands[0].count_ones() as u8;
+    let max_depth = min(cards_left * 4, 8); // Depth 8 (2 tricks) for speed
+
+    let mut best_score = 0;
+    let mut best_move = 0xFF;
+
+    // We use a small window or full window? Full window for now.
+
+    for depth in 1..=max_depth {
+        let (score, mv) = minimax(state, hash, -INF, INF, &mut tt, depth, is_first);
+        best_score = score;
+        best_move = mv;
+
+        // Timer check could go here to abort early
+    }
+
+    if is_first {
+        let nodes = TOTAL_NODES.load(Ordering::Relaxed);
+        let hits = TT_HITS.load(Ordering::Relaxed);
+        // debug print
+    }
+
+    (best_score, best_move)
+}
+
+/*
+fn generate_dot_file(root_state: &PlayingState, tt: &HashMap<u64, TTEntry>) {
+    // ... (content commented out for now as it needs update for Vec TT and Zobrist)
+}
+*/
 
 fn minimax(
     state: &PlayingState,
+    hash: u64,
     mut alpha: i16,
     mut beta: i16,
-    tt: &mut HashMap<u64, TTEntry>,
+    tt: &mut [TTEntry],
+    depth: u8,
+    debug: bool,
 ) -> (i16, u8) {
+    if debug {
+        TOTAL_NODES.fetch_add(1, Ordering::Relaxed);
+    }
     if state.is_terminal() {
         return (state.points[0] as i16, 0xFF);
     }
-
-    // 0. Memory Safety Check
-    // If the TT gets too huge (> 5M items ~ 300MB-500MB), purge it to prevent OOM.
-    // This is a tradeoff: we lose cached positions (slower) but we don't crash.
-    if tt.len() > 5_000_000 {
-        tt.clear();
+    if depth == 0 {
+        return (evaluate_state(state), 0xFF);
     }
 
-    // 1. Check TT
-    let key = compute_hash(state);
-    if let Some(entry) = tt.get(&key) {
+    // Score Normalization
+    let current_points = state.points[0] as i16;
+    let alpha_norm = alpha.saturating_sub(current_points);
+    let beta_norm = beta.saturating_sub(current_points);
+
+    // 1. TT Lookup
+    let tt_idx = (hash & TT_MASK) as usize;
+    let entry = tt[tt_idx];
+
+    if entry.key == hash && entry.depth >= depth {
+        // Only use if entry is from a deeper or equal search
+        if debug {
+            TT_HITS.fetch_add(1, Ordering::Relaxed);
+        }
+
         if entry.flag == 0 {
-            return (entry.score, entry.best_move);
+            // Exact score
+            return (entry.score + current_points, entry.best_move);
         } else if entry.flag == 1 {
             // Lowerbound
-            alpha = max(alpha, entry.score);
+            if entry.score >= beta_norm {
+                return (entry.score + current_points, entry.best_move);
+            }
+            alpha = max(alpha, entry.score + current_points);
         } else if entry.flag == 2 {
             // Upperbound
-            beta = min(beta, entry.score);
+            if entry.score <= alpha_norm {
+                return (entry.score + current_points, entry.best_move);
+            }
+            beta = min(beta, entry.score + current_points);
         }
         if alpha >= beta {
-            return (entry.score, entry.best_move);
+            return (entry.score + current_points, entry.best_move);
         }
     }
 
@@ -232,7 +307,6 @@ fn minimax(
     let mut best_move = 0xFF;
     let is_maximizing = state.current_player % 2 == 0;
 
-    // Collect moves
     let mut moves = Vec::with_capacity(8);
     for i in 0..32 {
         if (legal_moves_mask & (1 << i)) != 0 {
@@ -240,10 +314,14 @@ fn minimax(
         }
     }
 
-    // Move Ordering: Sort by potential strength
-    // Heuristic: Try high value cards first (winning tricks early is good for pruning)
-    // Strength: Trump > Non-Trump. Within suit: Rank Strength.
     moves.sort_by(|&a, &b| {
+        if entry.key == hash && a == entry.best_move {
+            return std::cmp::Ordering::Less;
+        }
+        if entry.key == hash && b == entry.best_move {
+            return std::cmp::Ordering::Greater;
+        }
+
         let suit_a = a / 8;
         let suit_b = b / 8;
         let rank_a = (a % 8) as usize;
@@ -252,13 +330,12 @@ fn minimax(
         let is_trump_b = suit_b == state.trump;
 
         if is_trump_a && !is_trump_b {
-            return std::cmp::Ordering::Less; // a > b (Desc)
+            return std::cmp::Ordering::Less;
         }
         if !is_trump_a && is_trump_b {
             return std::cmp::Ordering::Greater;
         }
 
-        // Both trump or both non-trump
         let str_a = if is_trump_a {
             crate::gameplay::playing::RANK_STRENGTH_TRUMP[rank_a]
         } else {
@@ -270,21 +347,19 @@ fn minimax(
             crate::gameplay::playing::RANK_STRENGTH_NON_TRUMP[rank_b]
         };
 
-        str_b.cmp(&str_a) // Descending
+        str_b.cmp(&str_a)
     });
 
-    // Create optimization to avoid redundant point calculations
     let mut val;
     let original_alpha = alpha;
 
     if is_maximizing {
         val = -INF;
         for &i in &moves {
-            let mut next_state = state.clone();
+            let mut next_state = *state;
             next_state.play_card(i);
-
-            let (eval, _) = minimax(&next_state, alpha, beta, tt);
-
+            let next_hash = compute_zobrist_hash(&next_state);
+            let (eval, _) = minimax(&next_state, next_hash, alpha, beta, tt, depth - 1, debug);
             if eval > val {
                 val = eval;
                 best_move = i;
@@ -297,11 +372,10 @@ fn minimax(
     } else {
         val = INF;
         for &i in &moves {
-            let mut next_state = state.clone();
+            let mut next_state = *state;
             next_state.play_card(i);
-
-            let (eval, _) = minimax(&next_state, alpha, beta, tt);
-
+            let next_hash = compute_zobrist_hash(&next_state);
+            let (eval, _) = minimax(&next_state, next_hash, alpha, beta, tt, depth - 1, debug);
             if eval < val {
                 val = eval;
                 best_move = i;
@@ -313,54 +387,24 @@ fn minimax(
         }
     }
 
-    // Store in TT
-    // Store FUTURE score relative to this state?
-    // No, let's just use the full state hash for now to avoid bugs.
-    // If we hash full state (including points), we don't need math.
-    // But we lose transposition benefits if points differ.
-    // In Coinche, points only increase.
-    // It's rare to reach same hands/trick with different points?
-    // Yes, because points come from captured tricks. Different capture order = different hands?
-    // No, same hands can be reached via different trick orders.
-    // Example: A takes trick 1, B takes trick 2 vs B takes 1, A takes 2.
-    // Hands are same. Points are same.
-    // So full state hash is fine.
-
+    let val_norm = val.saturating_sub(current_points);
     let flag = if val <= original_alpha {
-        2 // Upperbound (failed low)
+        2
     } else if val >= beta {
-        1 // Lowerbound (failed high)
+        1
     } else {
-        0 // Exact
+        0
     };
 
-    tt.insert(
-        key,
-        TTEntry {
-            score: val,
-            best_move,
-            flag,
-            // depth: 0,
-        },
-    );
+    tt[tt_idx] = TTEntry {
+        key: hash,
+        score: val_norm,
+        best_move,
+        flag,
+        depth, // Store the depth at which this entry was computed
+    };
 
     (val, best_move)
-}
-
-fn compute_hash(state: &PlayingState) -> u64 {
-    // Simple hash: XOR of hands + trick + turn + points
-    // Use a simple mixing function
-    let mut h: u64 = 0;
-    for i in 0..4 {
-        h = h.wrapping_add(state.hands[i] as u64).rotate_left(13);
-        h ^= state.current_trick[i] as u64;
-    }
-    h = h.wrapping_add(state.current_player as u64).rotate_left(7);
-    h ^= (state.points[0] as u64) << 32;
-    h ^= state.points[1] as u64;
-    h ^= (state.tricks_won[0] as u64).rotate_left(20);
-    h ^= (state.tricks_won[1] as u64).rotate_left(50);
-    h
 }
 #[cfg(test)]
 mod tests {

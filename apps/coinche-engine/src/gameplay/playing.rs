@@ -32,7 +32,7 @@ pub const RANK_STRENGTH_NON_TRUMP: [u8; 8] = [0, 1, 2, 6, 3, 4, 5, 7]; // 7<8<9<
 pub const RANK_STRENGTH_TRUMP: [u8; 8] = [0, 1, 6, 4, 7, 2, 3, 5]; // 7<8<Q<K<10<A<9<J
 
 #[pyclass]
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct PlayingState {
     #[pyo3(get)]
     pub hands: [u32; 4],

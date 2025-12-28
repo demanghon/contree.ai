@@ -1,4 +1,4 @@
-mod data_gen;
+pub mod data_gen;
 pub mod gameplay;
 mod solver;
 
