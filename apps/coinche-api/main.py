@@ -4,19 +4,34 @@ from pydantic import BaseModel
 import coinche_engine
 from typing import Optional, List
 import uuid
+import os
+
+from ai_agent import AIAgent
 
 app = FastAPI()
 
+# Config
+MODELS_DIR = "../../models" # relative to apps/coinche-api
+if not os.path.exists(MODELS_DIR):
+    # Try absolute path if relative fails
+    MODELS_DIR = "/home/demanghon/.gemini/antigravity/scratch/contree.ai/models"
+
+ai_agent = AIAgent(MODELS_DIR)
+
+origins = [
+    "http://localhost:4200",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# In-memory store for active games
-games = {}
+# In-memory storage for games
+games = {} 
 
 class CreateGameRequest(BaseModel):
     dealer: int = 0
@@ -28,7 +43,65 @@ class BidRequest(BaseModel):
     trump: int
 
 class PlayCardRequest(BaseModel):
-    card: int # 0-31
+    card_index: int # 0-31
+
+
+def auto_play_ai(match: coinche_engine.CoincheMatch):
+    """
+    Automatically plays turns for AI players (1, 2, 3) until it's Human's (0) turn 
+    or the phase changes/ends.
+    """
+    while True:
+        phase = match.phase_name()
+        
+        # Stop if game finished
+        if phase == "FINISHED":
+            break
+            
+        current_player = 0
+        
+        if phase == "BIDDING":
+            bs = match.get_bidding_state()
+            if not bs: break
+            current_player = bs.current_player
+            
+            # If Human turn, stop
+            if current_player == 0:
+                break
+                
+            # AI Logic
+            hand = match.hands[current_player]
+            contract = bs.contract
+            
+            bid = ai_agent.get_bid(hand, contract)
+            match.bid(bid) # None = Pass
+            
+        elif phase == "PLAYING":
+            ps = match.get_playing_state()
+            if not ps: break
+            current_player = ps.current_player
+            
+            # If Human turn, stop
+            if current_player == 0:
+                break
+                
+            # AI Logic
+            hand = match.hands[current_player]
+            legal_moves = ps.get_legal_moves()
+            
+            # Construct partial game state for AI
+            game_state = {
+                'current_trick': ps.current_trick,
+                'trump': ps.trump
+                # 'history': ??? (Missing history mask)
+            }
+            
+            card = ai_agent.get_play(game_state, hand, legal_moves)
+            match.play_card(card)
+            
+        else:
+            break
+
 
 @app.post("/game/new")
 def create_game(req: CreateGameRequest):
@@ -44,6 +117,10 @@ def create_game(req: CreateGameRequest):
     try:
         match = coinche_engine.CoincheMatch(req.dealer, hands)
         games[game_id] = match
+        
+        # Check if AI needs to start (e.g. if Dealer was 0, P1 starts)
+        auto_play_ai(match)
+        
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
         
@@ -103,22 +180,30 @@ def get_game(game_id: str):
     return state
 
 @app.post("/game/{game_id}/bid")
-def bid(game_id: str, req: Optional[BidRequest] = None):
+def bid(game_id: str, req: BidRequest):
     if game_id not in games:
         raise HTTPException(status_code=404, detail="Game not found")
-    match = games[game_id]
     
+    match = games[game_id]
     try:
-        if req is None:
-            # Pass
-            match.bid(None)
-        else:
-            b = coinche_engine.Bid(req.value, req.trump)
-            match.bid(b)
+        match.bid(coinche_engine.Bid(req.value, req.trump))
+        auto_play_ai(match)
+        return get_game(game_id)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-        
-    return get_game(game_id)
+
+@app.post("/game/{game_id}/pass")
+def pass_turn(game_id: str):
+    if game_id not in games:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    match = games[game_id]
+    try:
+        match.bid(None)
+        auto_play_ai(match)
+        return get_game(game_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/game/{game_id}/coinche")
 def coinche(game_id: str):
@@ -128,6 +213,7 @@ def coinche(game_id: str):
     match = games[game_id]
     try:
         match.coinche()
+        auto_play_ai(match)
         return get_game(game_id)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -140,6 +226,7 @@ def surcoinche(game_id: str):
     match = games[game_id]
     try:
         match.surcoinche()
+        auto_play_ai(match)
         return get_game(game_id)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -151,8 +238,8 @@ def play_card(game_id: str, req: PlayCardRequest):
     match = games[game_id]
     
     try:
-        match.play_card(req.card)
+        match.play_card(req.card_index)
+        auto_play_ai(match)
+        return get_game(game_id)
     except Exception as e:
          raise HTTPException(status_code=400, detail=str(e))
-         
-    return get_game(game_id)

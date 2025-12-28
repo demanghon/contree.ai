@@ -19,11 +19,12 @@ pub fn generate_hand_batch(batch_size: usize) -> (Vec<u32>, Vec<u8>) {
     let weights = [40, 20, 20, 20];
 
     // Common shapes for Shape Bias
+    // Common shapes for Shape Bias (Must sum to 8)
     let shapes = [
-        [6, 3, 2, 1], // Long suit
-        [5, 5, 2, 1], // Two long suits
-        [5, 4, 2, 1], // Solid
-        [4, 4, 4, 0], // Distributional (void)
+        [5, 2, 1, 0], // Long suit
+        [4, 3, 1, 0], // Two long suits
+        [4, 2, 1, 1], // Solid
+        [3, 3, 2, 0], // Distributional (void)
     ];
 
     // We return a tuple:

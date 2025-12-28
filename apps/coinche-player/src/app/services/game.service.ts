@@ -94,7 +94,7 @@ export class GameService {
   pass() {
     const state = this.gameState();
     if (!state) return;
-    return this.http.post<GameState>(`${this.apiUrl}/game/${state.game_id}/bid`, null).pipe(
+    return this.http.post<GameState>(`${this.apiUrl}/game/${state.game_id}/pass`, {}).pipe(
       tap(res => this.gameState.set(res))
     ).subscribe();
   }
@@ -118,7 +118,7 @@ export class GameService {
   playCard(cardId: number) {
     const state = this.gameState();
     if (!state) return;
-    return this.http.post<GameState>(`${this.apiUrl}/game/${state.game_id}/play`, { card: cardId }).pipe(
+    return this.http.post<GameState>(`${this.apiUrl}/game/${state.game_id}/play`, { card_index: cardId }).pipe(
       tap(res => this.gameState.set(res))
     ).subscribe();
   }
