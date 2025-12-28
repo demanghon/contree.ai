@@ -44,6 +44,12 @@ A standard REST API (FastAPI) to expose the engine features for external clients
 - **Role**: Game State Management, API Gateway.
 - **Key Dependencies**: `FastAPI`, `Uvicorn`, `Pydantic`.
 
+### 6. `coinche-dataset-generator` (Python)
+
+Scripts for generating training data using the Rust engine.
+
+- **Role**: Dataset Generation (Bidding & Gameplay).
+
 ### Prerequisites
 
 - **Rust**: For the high-performance solver.
@@ -94,10 +100,10 @@ Generates hand evaluations for the Bidding phase. This process solves 4 full gam
 
 ```bash
 # Basic run (default 50,000 samples)
-nx run coinche-engine:generate-bidding-data
+nx run coinche-dataset-generator:generate-bidding
 
 # Custom size and thread control (Recommended for memory management)
-nx run coinche-engine:generate-bidding-data --samples=10000 --threads=4 --batchSize=1000
+nx run coinche-dataset-generator:generate-bidding --samples=10000 --threads=4 --batchSize=1000
 ```
 
 - **Output**: `dist/datasets/bidding_data.parquet` (merged) and `dist/datasets/bidding_data/` (partitions)
@@ -113,10 +119,10 @@ Generates decision-making data for the Card Play phase. This simulates partial g
 
 ```bash
 # Basic run (default 10,000 samples, 1 thread)
-nx run coinche-engine:generate-gameplay-data
+nx run coinche-dataset-generator:generate-gameplay
 
 # Fast run (use more threads for speed)
-nx run coinche-engine:generate-gameplay-data --samples=100000 --threads=8
+nx run coinche-dataset-generator:generate-gameplay --samples=100000 --threads=8
 ```
 
 - **Output**: `dist/datasets/gameplay_data.parquet`
@@ -134,7 +140,7 @@ nx run coinche-engine:generate-gameplay-data --samples=100000 --threads=8
 | `--threads`   | Number of CPU threads to use.                         | `4` (Bidding) / `1` (Gameplay) | Set to roughly `CPU Cores - 2`. Reduce if OOM occurs. |
 | `--batchSize` | Number of hands to solve in one batch (Bidding only). | `2,000`                        | Lower to `500-1000` to reduce RAM usage per thread.   |
 
-> **Note**: These commands use the `maturin` tool to compile the Rust code and then run the Python generation script.
+> **Note**: These commands use the `maturin` tool to compile the Rust code and then run the Python generation script inside `apps/coinche-dataset-generator`.
 
 ### Training Models
 

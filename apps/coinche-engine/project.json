@@ -25,34 +25,6 @@
                 "command": "cargo test",
                 "cwd": "apps/coinche-engine"
             }
-        },
-        "generate-bidding-data": {
-            "executor": "nx:run-commands",
-            "options": {
-                "command": "unset CONDA_PREFIX && . $HOME/.cargo/env && maturin develop --release && ../../.venv/bin/python generate_datasets.py --gameplay-samples=0 --bidding-output=../../dist/datasets/bidding_data --bidding-samples={args.samples} --batch-size={args.batchSize} --threads={args.threads}",
-                "cwd": "apps/coinche-engine",
-                "samples": 50000,
-                "batchSize": 2000,
-                "threads": 4
-            }
-        },
-        "generate-gameplay-data": {
-            "executor": "nx:run-commands",
-            "options": {
-                "command": "unset CONDA_PREFIX && . $HOME/.cargo/env && maturin develop --release && ../../.venv/bin/python generate_datasets.py --bidding-samples=0 --gameplay-output=../../dist/datasets/gameplay_data.parquet --gameplay-samples={args.samples} --threads={args.threads} --batch-size={args.batchSize}",
-                "cwd": "apps/coinche-engine",
-                "samples": 100000,
-                "threads": 1,
-                "batchSize": 2000
-            }
-        },
-        "verify-dataset": {
-            "executor": "nx:run-commands",
-            "dependsOn": ["build"],
-            "options": {
-                "command": "unset CONDA_PREFIX && . $HOME/.cargo/env && maturin develop --release && python verify_data_gen.py",
-                "cwd": "apps/coinche-engine"
-            }
         }
     }
 }

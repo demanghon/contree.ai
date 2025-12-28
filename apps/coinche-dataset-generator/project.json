@@ -1,0 +1,53 @@
+{
+    "name": "coinche-dataset-generator",
+    "$schema": "../../node_modules/nx/schemas/project-schema.json",
+    "projectType": "application",
+    "sourceRoot": "apps/coinche-dataset-generator",
+    "targets": {
+        "generate-bidding": {
+            "executor": "nx:run-commands",
+            "dependsOn": [
+                {
+                    "projects": ["coinche-engine"],
+                    "target": "develop"
+                }
+            ],
+            "options": {
+                "command": "../../.venv/bin/python generate_datasets.py --gameplay-samples=0 --bidding-output=../../dist/datasets/bidding_data --bidding-samples={args.samples} --batch-size={args.batchSize} --threads={args.threads}",
+                "cwd": "apps/coinche-dataset-generator",
+                "samples": 50000,
+                "batchSize": 2000,
+                "threads": 4
+            }
+        },
+        "generate-gameplay": {
+            "executor": "nx:run-commands",
+            "dependsOn": [
+                {
+                    "projects": ["coinche-engine"],
+                    "target": "develop"
+                }
+            ],
+            "options": {
+                "command": "../../.venv/bin/python generate_datasets.py --bidding-samples=0 --gameplay-output=../../dist/datasets/gameplay_data.parquet --gameplay-samples={args.samples} --threads={args.threads} --batch-size={args.batchSize}",
+                "cwd": "apps/coinche-dataset-generator",
+                "samples": 100000,
+                "threads": 4,
+                "batchSize": 2000
+            }
+        },
+        "verify": {
+            "executor": "nx:run-commands",
+            "dependsOn": [
+                {
+                    "projects": ["coinche-engine"],
+                    "target": "develop"
+                }
+            ],
+            "options": {
+                "command": "../../.venv/bin/python verify_data_gen.py",
+                "cwd": "apps/coinche-dataset-generator"
+            }
+        }
+    }
+}
