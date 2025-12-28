@@ -223,7 +223,7 @@ pub fn solve(state: &PlayingState, generate_graph: bool) -> (i16, u8) {
     // Total depth = 32? No, 8 tricks. Minimax depth is usually counted in ply (player moves).
     // 8 tricks * 4 players = 32 ply max.
 
-    let cards_left = state.hands[0].count_ones() as u8;
+    let cards_left = state.hands[state.current_player as usize].count_ones() as u8;
     let max_depth = min(cards_left * 4, 8); // Depth 8 (2 tricks) for speed
 
     let mut best_score = 0;

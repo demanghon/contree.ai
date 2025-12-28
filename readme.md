@@ -136,6 +136,43 @@ nx run coinche-engine:generate-gameplay-data --samples=100000 --threads=8
 
 > **Note**: These commands use the `maturin` tool to compile the Rust code and then run the Python generation script.
 
+### Training Models
+
+Once you have generated the datasets, you can train the Neural Networks.
+
+1. **Setup Environment**
+
+   ```bash
+   cd apps/coinche-ml
+   poetry install
+   ```
+
+2. **Train Bidding Model (Value Network)**
+   Predicts the game score from a hand.
+
+   ```bash
+   poetry run python src/train_bidding.py \
+     --data ../../../datasets/bidding_data.parquet \
+     --output ../../../models/bidding_model.pth \
+     --epochs 20
+   ```
+
+3. **Train Gameplay Model (Policy Network)**
+   Predicts the best card to play and the outcome.
+
+   ```bash
+   poetry run python src/train_playing.py \
+     --data ../../../datasets/gameplay_data.parquet \
+     --output ../../../models/playing_model.pth \
+     --epochs 20
+   ```
+
+   > **Note**: Ensure the `dist/models` directory exists or the script might fail.
+   >
+   > ```bash
+   > mkdir -p ../../../dist/models
+   > ```
+
 ### Running the API Server
 
 To play against the engine via HTTP/JSON (used by the Angular App):

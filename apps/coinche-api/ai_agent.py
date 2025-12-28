@@ -12,7 +12,7 @@ class AIAgent:
         
         # Load Bidding Model
         self.bidding_model = BiddingValueNet().to(self.device)
-        bidding_path = os.path.join(models_dir, "bidding_model.pth")
+        bidding_path = os.path.join(models_dir, "simple_bidding_model_300K.pth")
         if os.path.exists(bidding_path):
             self.bidding_model.load_state_dict(torch.load(bidding_path, map_location=self.device))
             self.bidding_model.eval()
@@ -22,7 +22,7 @@ class AIAgent:
 
         # Load Playing Model
         self.playing_model = GameplayResNet(input_dim=102).to(self.device)
-        playing_path = os.path.join(models_dir, "playing_model.pth")
+        playing_path = os.path.join(models_dir, "simple_playing_model_1M.pth")
         if os.path.exists(playing_path):
             self.playing_model.load_state_dict(torch.load(playing_path, map_location=self.device))
             self.playing_model.eval()

@@ -6,7 +6,17 @@ import numpy as np
 
 class GameplayDataset(Dataset):
     def __init__(self, parquet_file):
-        self.data = pd.read_parquet(parquet_file)
+        df = pd.read_parquet(parquet_file)
+        
+        # Filter out invalid entries (255 = No Move)
+        initial_len = len(df)
+        df = df[df['best_card'] != 255]
+        filtered_len = len(df)
+        
+        if initial_len != filtered_len:
+            print(f"Filtered {initial_len - filtered_len} invalid samples (No Move). Remaining: {filtered_len}")
+            
+        self.data = df.reset_index(drop=True)
         
     def __len__(self):
         return len(self.data)

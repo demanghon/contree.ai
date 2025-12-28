@@ -123,6 +123,14 @@ export class GameService {
     ).subscribe();
   }
 
+  step() {
+      const state = this.gameState();
+      if (!state) return;
+      return this.http.post<GameState>(`${this.apiUrl}/game/${state.game_id}/step`, {}).pipe(
+        tap(res => this.gameState.set(res))
+      ).subscribe();
+  }
+
   // Helper to parse hands from u32 bitmask to Card objects
   getHandCards(playerIndex: number): Card[] {
     const state = this.gameState();
