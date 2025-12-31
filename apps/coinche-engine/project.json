@@ -15,7 +15,7 @@
         "develop": {
             "executor": "nx:run-commands",
             "options": {
-                "command": "unset CONDA_PREFIX && . $HOME/.cargo/env && maturin develop",
+                "command": "unset CONDA_PREFIX && . $HOME/.cargo/env && maturin develop --release",
                 "cwd": "apps/coinche-engine"
             }
         },
