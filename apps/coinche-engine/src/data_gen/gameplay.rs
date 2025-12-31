@@ -1,15 +1,8 @@
 use crate::gameplay::playing::PlayingState;
 use crate::solver::solve;
-use arrow::array::{ListArray, UInt32Array, UInt8Array};
-use arrow::datatypes::{DataType, Field, Schema};
-use arrow::record_batch::RecordBatch;
 use indicatif::ParallelProgressIterator;
-use parquet::arrow::ArrowWriter;
-use parquet::file::properties::WriterProperties;
 use rand::prelude::*;
 use rayon::prelude::*;
-use std::fs::File;
-use std::sync::Arc;
 
 use super::common::generate_random_hands;
 
@@ -159,6 +152,7 @@ pub fn solve_gameplay_batch(
     history: Vec<u32>,
     trumps: Vec<u8>,
     tricks_won: Vec<Vec<u8>>,
+    players: Vec<u8>,
     pimc_iterations: usize,
 ) -> (Vec<u8>, Vec<i16>, Vec<bool>) {
     // flattened_hands is size N*4.
