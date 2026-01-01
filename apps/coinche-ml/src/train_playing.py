@@ -47,7 +47,7 @@ def playing_eval_fn(model, batch):
     
     return {'MAE': mae.item(), 'Accuracy': accuracy.item()}
 
-def train(parquet_file, output_path, epochs=10, batch_size=64, lr=0.001, dropout_rate=0.1):
+def train(parquet_file, output_path, epochs=10, batch_size=64, lr=0.001, dropout_rate=0.1, num_blocks=4):
     # Check device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -69,7 +69,7 @@ def train(parquet_file, output_path, epochs=10, batch_size=64, lr=0.001, dropout
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     # Initialize Model
-    model = GameplayResNet(input_dim=102, dropout_rate=dropout_rate).to(device)
+    model = GameplayResNet(input_dim=102, dropout_rate=dropout_rate, num_blocks=num_blocks).to(device)
     
     # Optimizer
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -79,7 +79,7 @@ def train(parquet_file, output_path, epochs=10, batch_size=64, lr=0.001, dropout
     
     model_config = {
         'Type': 'ResNet (GameplayResNet)',
-        'Residual Blocks': 4,
+        'Residual Blocks': num_blocks,
         'Hidden Dim': 256,
         'Dropout': dropout_rate
     }
@@ -111,6 +111,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, default="../../models/playing_model.pth", help="Path to save model")
     parser.add_argument("--epochs", type=int, default=20, help="Number of epochs")
     parser.add_argument("--dropout", type=float, default=0.1, help="Dropout rate (default: 0.1)")
+    parser.add_argument("--blocks", type=int, default=4, help="Number of Residual Blocks (default: 4)")
     args = parser.parse_args()
     
-    train(args.data, args.output, epochs=args.epochs, dropout_rate=args.dropout)
+    train(args.data, args.output, epochs=args.epochs, dropout_rate=args.dropout, num_blocks=args.blocks)

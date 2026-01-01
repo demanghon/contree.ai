@@ -172,7 +172,9 @@ Once you have generated the datasets, you can train the Neural Networks.
      --data ../../datasets/gameplay_data.parquet \
      --output ../../models/playing_model.pth \
      --epochs 20 \
-     --dropout 0.1
+     --logits 32 \
+     --dropout 0.1 \
+     --blocks 4
    ```
 
    > **Note**: Ensure the `dist/models` directory exists or the script might fail.
