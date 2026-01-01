@@ -171,7 +171,8 @@ Once you have generated the datasets, you can train the Neural Networks.
    poetry run python src/train_playing.py \
      --data ../../datasets/gameplay_data.parquet \
      --output ../../models/playing_model.pth \
-     --epochs 20
+     --epochs 20 \
+     --dropout 0.1
    ```
 
    > **Note**: Ensure the `dist/models` directory exists or the script might fail.

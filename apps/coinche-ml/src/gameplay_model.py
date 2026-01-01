@@ -4,25 +4,26 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class ResidualBlock(nn.Module):
-    def __init__(self, hidden_dim, dropout=0.1):
+    def __init__(self, hidden_dim, dropout_rate=0.1):
         super().__init__()
         self.fc1 = nn.Linear(hidden_dim, hidden_dim)
         self.bn1 = nn.BatchNorm1d(hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.bn2 = nn.BatchNorm1d(hidden_dim)
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(p=dropout_rate)
 
     def forward(self, x):
         residual = x
         out = F.relu(self.bn1(self.fc1(x)))
-        out = self.dropout(out)
+        # No dropout here anymore
         out = self.bn2(self.fc2(out))
+        out = self.dropout(out) # Dropout before addition
         out += residual
         out = F.relu(out)
         return out
 
 class GameplayResNet(nn.Module):
-    def __init__(self, input_dim=102, hidden_dim=256, num_blocks=4, dropout=0.1):
+    def __init__(self, input_dim=102, hidden_dim=256, num_blocks=4, dropout_rate=0.1):
         super().__init__()
         
         # Input embedding
@@ -31,7 +32,7 @@ class GameplayResNet(nn.Module):
         
         # Residual Tower
         self.blocks = nn.ModuleList([
-            ResidualBlock(hidden_dim, dropout) for _ in range(num_blocks)
+            ResidualBlock(hidden_dim, dropout_rate=dropout_rate) for _ in range(num_blocks)
         ])
         
         # Value Head (Score Prediction)
