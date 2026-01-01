@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "coinche-model-comparator"
+version = "0.1.0"
+description = "Performance comparison engine for Coinche AI models"
+authors = ["Contree AI Team"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+torch = "^2.0.0"
+numpy = "^1.24"
+pandas = "^2.0"
+tensorboard = "^2.10"
+# Local dependency to the engine bindings
+coinche-engine = { path = "../coinche-engine", develop = true }
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

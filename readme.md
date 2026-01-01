@@ -181,6 +181,36 @@ Once you have generated the datasets, you can train the Neural Networks.
    > mkdir -p ../../../dist/models
    > ```
 
+### Comparing Models (Duplicate Tournament)
+
+You can benchmark your trained models against a baseline (Heuristic or Random) using the `coinche-model-comparator`.
+
+1. **Setup Environment**
+
+   ```bash
+   cd apps/coinche-model-comparator
+   poetry install
+   ```
+
+2. **Run a Tournament**
+   Compare a trained "Challenger" model against a "heuristic" Baseline.
+
+   ```bash
+   poetry run python src/compare_models.py \
+     --team_a_bidding heuristic \
+     --team_a_playing heuristic \
+     --team_a_name "Baseline" \
+     --team_b_bidding ../../models/bidding_model.pth \
+     --team_b_playing ../../models/playing_model.pth \
+     --team_b_name "MyNeuralNet" \
+     --nb_games 1000
+   ```
+
+   - **Results**: View detailed metrics (Synergy, Margins, Stability) in TensorBoard:
+     ```bash
+     tensorboard --logdir apps/coinche-model-comparator/runs
+     ```
+
 ### Running the API Server
 
 To play against the engine via HTTP/JSON (used by the Angular App):
