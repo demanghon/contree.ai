@@ -159,8 +159,8 @@ Once you have generated the datasets, you can train the Neural Networks.
 
    ```bash
    poetry run python src/train_bidding.py \
-     --data ../../../datasets/bidding_data.parquet \
-     --output ../../../models/bidding_model.pth \
+     --data ../../datasets/bidding_data.parquet \
+     --output ../../models/bidding_model.pth \
      --epochs 20
    ```
 
@@ -169,8 +169,8 @@ Once you have generated the datasets, you can train the Neural Networks.
 
    ```bash
    poetry run python src/train_playing.py \
-     --data ../../../datasets/gameplay_data.parquet \
-     --output ../../../models/playing_model.pth \
+     --data ../../datasets/gameplay_data.parquet \
+     --output ../../models/playing_model.pth \
      --epochs 20
    ```
 

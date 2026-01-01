@@ -3,13 +3,49 @@ print("Starting Gameplay Training...")
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
-from tqdm import tqdm
+from torch.utils.data import DataLoader, random_split
 import argparse
 import os
 
 from gameplay_model import GameplayResNet
 from gameplay_dataset import GameplayDataset
+from trainer import Trainer
+
+def playing_step_fn(model, batch):
+    inputs = batch['features']
+    target_card = batch['best_card']
+    target_score = batch['best_score'].unsqueeze(1)
+    
+    pred_score, pred_policy = model(inputs)
+    
+    mse_loss = nn.MSELoss()
+    ce_loss = nn.CrossEntropyLoss()
+    
+    loss_val = mse_loss(pred_score, target_score)
+    loss_pol = ce_loss(pred_policy, target_card)
+    
+    loss = loss_val + loss_pol
+    
+    return loss, {'val_loss': loss_val.item(), 'pol_loss': loss_pol.item()}
+
+def playing_eval_fn(model, batch):
+    inputs = batch['features']
+    target_score = batch['best_score'].unsqueeze(1)
+    target_card = batch['best_card']
+    
+    pred_score, pred_policy = model(inputs)
+    
+    # MAE on score
+    output_scores = pred_score * 162.0
+    target_scores_denorm = target_score * 162.0
+    mae = torch.mean(torch.abs(output_scores - target_scores_denorm))
+    
+    # Accuracy on policy
+    pred_cards = torch.argmax(pred_policy, dim=1)
+    correct = (pred_cards == target_card).float().sum()
+    accuracy = correct / len(target_card)
+    
+    return {'MAE': mae.item(), 'Accuracy': accuracy.item()}
 
 def train(parquet_file, output_path, epochs=10, batch_size=64, lr=0.001):
     # Check device
@@ -21,74 +57,59 @@ def train(parquet_file, output_path, epochs=10, batch_size=64, lr=0.001):
         print(f"Error: Dataset not found at {parquet_file}")
         return
 
-    dataset = GameplayDataset(parquet_file)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    full_dataset = GameplayDataset(parquet_file)
+    print(f"Total Dataset size: {len(full_dataset)}")
     
-    print(f"Dataset size: {len(dataset)}")
+    # Split Train/Val
+    train_size = int(0.8 * len(full_dataset))
+    val_size = len(full_dataset) - train_size
+    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
+    
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     # Initialize Model
     model = GameplayResNet(input_dim=102).to(device)
     
-    # Loss Functions
-    mse_loss = nn.MSELoss()
-    ce_loss = nn.CrossEntropyLoss()
-    
     # Optimizer
     optimizer = optim.Adam(model.parameters(), lr=lr)
     
-    # Training Loop
-    min_loss = float('inf')
+    # Trainer
+    trainer = Trainer(model, train_loader, val_loader, optimizer, device, log_dir="runs/playing", run_name=os.path.basename(output_path))
     
-    for epoch in range(epochs):
-        model.train()
-        total_loss = 0
-        total_val_loss = 0
-        total_pol_loss = 0
-        
-        progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}")
-        
-        for batch in progress_bar:
-            inputs = batch['features'].to(device)
-            target_card = batch['best_card'].to(device)
-            target_score = batch['best_score'].to(device).unsqueeze(1)
-            
-            optimizer.zero_grad()
-            
-            pred_score, pred_policy = model(inputs)
-            
-            loss_val = mse_loss(pred_score, target_score)
-            loss_pol = ce_loss(pred_policy, target_card)
-            
-            loss = loss_val + loss_pol
-            
-            loss.backward()
-            optimizer.step()
-            
-            total_loss += loss.item()
-            total_val_loss += loss_val.item()
-            total_pol_loss += loss_pol.item()
-            
-            progress_bar.set_postfix({
-                'loss': f"{loss.item():.4f}",
-                'val': f"{loss_val.item():.4f}",
-                'pol': f"{loss_pol.item():.4f}"
-            })
-            
-        avg_loss = total_loss / len(dataloader)
-        print(f"Epoch {epoch+1} - Avg Loss: {avg_loss:.4f} (Val: {total_val_loss/len(dataloader):.4f}, Pol: {total_pol_loss/len(dataloader):.4f})")
-        
-        if avg_loss < min_loss:
-            min_loss = avg_loss
-            torch.save(model.state_dict(), output_path)
-
-    print(f"Training Complete. Best Loss: {min_loss:.4f}")
-    print(f"Model saved to {output_path}")
+    model_config = {
+        'Type': 'ResNet (GameplayResNet)',
+        'Residual Blocks': 4,
+        'Hidden Dim': 256,
+        'Dropout': 0.1
+    }
+    
+    history = trainer.train(
+        epochs=epochs,
+        loss_fn_dict=playing_step_fn,
+        eval_fn=playing_eval_fn,
+        patience=5,
+        checkpoint_path=output_path,
+        model_config=model_config
+    )
+    
+    print("\n" + "="*30)
+    print("       FINAL RESULTS       ")
+    print("="*30)
+    print(f"Epochs Trained: {history['epochs_trained']}")
+    print(f"Best Validation Loss: {history['min_val_loss']:.4f}")
+    print(f"Final Train Loss: {history['final_train_loss']:.4f}")
+    if 'MAE' in history['final_metrics']:
+        print(f"Final MAE: {history['final_metrics']['MAE']:.2f} points")
+    if 'Accuracy' in history['final_metrics']:
+        print(f"Final Accuracy: {history['final_metrics']['Accuracy']:.2%}")
+    print("="*30 + "\n")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", type=str, default="../../dataset/simple_gameplay_dataset.parquet", help="Path to parquet file")
+    parser.add_argument("--data", type=str, default="../../../dist/datasets/gameplay_data.parquet", help="Path to parquet/json file")
     parser.add_argument("--output", type=str, default="../../models/playing_model.pth", help="Path to save model")
-    parser.add_argument("--epochs", type=int, default=10, help="Number of epochs")
+    parser.add_argument("--epochs", type=int, default=20, help="Number of epochs")
     args = parser.parse_args()
     
     train(args.data, args.output, epochs=args.epochs)
