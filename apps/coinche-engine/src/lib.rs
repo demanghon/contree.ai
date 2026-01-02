@@ -28,7 +28,7 @@ fn solve_bidding_batch(
     py: Python,
     hands: Vec<u32>,
     pimc_iterations: usize,
-) -> PyResult<Vec<Vec<i16>>> {
+) -> PyResult<Vec<Vec<f32>>> {
     py.allow_threads(|| {
         let scores = solve_hand_batch(hands, pimc_iterations);
         Ok(scores)

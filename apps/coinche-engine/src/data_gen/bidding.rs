@@ -1,6 +1,6 @@
 use crate::gameplay::playing::PlayingState;
 use crate::solver::solve;
-use arrow::array::{Int16Array, ListArray, UInt32Array};
+use arrow::array::{Float32Array, Int16Array, ListArray, UInt32Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use indicatif::{ParallelProgressIterator, ProgressIterator};
@@ -68,13 +68,13 @@ pub fn generate_hand_batch(batch_size: usize) -> (Vec<u32>, Vec<u8>) {
     (flattened_hands, strategies)
 }
 
-pub fn solve_hand_batch(flattened_hands: Vec<u32>, pimc_iterations: usize) -> Vec<Vec<i16>> {
+pub fn solve_hand_batch(flattened_hands: Vec<u32>, pimc_iterations: usize) -> Vec<Vec<f32>> {
     // flattened_hands length should be divisible by 4
     let num_samples = flattened_hands.len() / 4;
 
     // chunk(4) is not directly available on slice in a way that plays nice with par_iter
     // unless we use `par_chunks`.
-    let scores_batch: Vec<Vec<i16>> = flattened_hands
+    let scores_batch: Vec<Vec<f32>> = flattened_hands
         .par_chunks(4)
         .progress_count(num_samples as u64)
         .map(|hand_chunk| {
@@ -132,7 +132,7 @@ pub fn solve_hand_batch(flattened_hands: Vec<u32>, pimc_iterations: usize) -> Ve
                         total_score += s as i32;
                     }
 
-                    let avg = (total_score as f32 / pimc_iterations as f32).round() as i16;
+                    let avg = total_score as f32 / pimc_iterations as f32;
                     scores.push(avg);
                 }
                 scores
@@ -143,7 +143,7 @@ pub fn solve_hand_batch(flattened_hands: Vec<u32>, pimc_iterations: usize) -> Ve
                     let mut state = PlayingState::new(trump as u8);
                     state.hands = hands; // Use the provided full deal
                     let (score, _) = solve(&state, false);
-                    scores.push(score);
+                    scores.push(score as f32);
                 }
                 scores
             }
@@ -157,10 +157,10 @@ pub fn solve_hand_batch(flattened_hands: Vec<u32>, pimc_iterations: usize) -> Ve
 // For now, I'm assuming we do the writing in Python or update this signature later.
 // The Python plan says we write Parquet from Python using PyArrow,
 // so this Rust function might become obsolete or need to change to accept just south hand + scores.
-pub fn write_bidding_parquet(filename: &str, hands: &[u32], scores: &[Vec<i16>]) {
+pub fn write_bidding_parquet(filename: &str, hands: &[u32], scores: &[Vec<f32>]) {
     let hand_field = Field::new("hand_south", DataType::UInt32, false);
     // Scores is a list of 4 integers
-    let score_item_field = Field::new("item", DataType::Int16, true);
+    let score_item_field = Field::new("item", DataType::Float32, true);
     let scores_field = Field::new("scores", DataType::List(Arc::new(score_item_field)), false);
 
     let schema = Arc::new(Schema::new(vec![hand_field, scores_field]));
@@ -175,12 +175,12 @@ pub fn write_bidding_parquet(filename: &str, hands: &[u32], scores: &[Vec<i16>])
         flattened_scores.extend_from_slice(s);
         offsets.push(flattened_scores.len() as i32);
     }
-    let values_array = Int16Array::from(flattened_scores);
+    let values_array = Float32Array::from(flattened_scores);
     let offsets_buffer = arrow::buffer::Buffer::from_slice_ref(&offsets);
 
     // Correct way to construct ListArray in newer arrow versions
     let scores_array = ListArray::new(
-        Arc::new(Field::new("item", DataType::Int16, true)),
+        Arc::new(Field::new("item", DataType::Float32, true)),
         arrow::buffer::OffsetBuffer::new(offsets_buffer.into()),
         Arc::new(values_array),
         None,

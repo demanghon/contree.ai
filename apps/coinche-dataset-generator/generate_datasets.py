@@ -113,11 +113,23 @@ def generate_datasets(bidding_samples, gameplay_samples, bidding_output_dir, gam
                 strat_names = [strat_map.get(s, "Unknown") for s in strat_slice]
                 
                 # Create Table
+                # Define Schema explicitly for float scores (User Requirement: Target continue)
+                # scores_batch contains floats from Rust engine
+                
+                # We cast scores_batch to ensure PyArrow respects float32 (not double) to save space/match ML types
+                # Using explicit schema is best.
+                score_type = pa.list_(pa.float32())
+                schema = pa.schema([
+                    ('hand_south', pa.uint32()),
+                    ('scores', score_type),
+                    ('strategy', pa.string())
+                ])
+
                 table = pa.Table.from_pydict({
                     'hand_south': south_hands,
                     'scores': scores_batch,
                     'strategy': strat_names
-                })
+                }, schema=schema)
                 
                 # Write to Dataset with Partitioning
                 pq.write_to_dataset(
