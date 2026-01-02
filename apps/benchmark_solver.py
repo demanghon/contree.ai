@@ -198,6 +198,21 @@ def main():
     god_tricks_won = [0, 0] # Team 0, Team 1
     god_player = 0 # P0 to lead
     
+    # 1. Partial Hand Test (4 cards)
+    print("Solving Partial God Hand (4 cards)...")
+    def make_partial_hand(suit):
+        h = 0
+        for r in range(4, 8): # Top 4 cards
+            h |= (1 << (suit * 8 + r))
+        return h
+        
+    p_hands = [make_partial_hand(2), make_partial_hand(1), make_partial_hand(0), make_partial_hand(3)]
+    
+    coinche_engine.solve_gameplay_batch(
+        p_hands, [god_board], [god_history], [god_trump], [god_tricks_won], [god_player], 1, 20
+    )
+    print("Partial Hand Solved!")
+
     print("Solving God Hand...")
     (g_best, g_scores, g_valid) = coinche_engine.solve_gameplay_batch(
         god_hands_flat,
@@ -206,11 +221,12 @@ def main():
         [god_trump],
         [god_tricks_won],
         [god_player],
-        1 # Single iteration (Double Dummy is sufficient)
+        1, # Single iteration
+        20 # TT Log2 (16MB)
     )
     
     god_score = g_scores[0]
-    print(f"God Hand Score: {god_score}")
+    print(f"God Hand Score (Full): {god_score}")
     
     if god_score >= 250:
         print("SUCCESS: Capot Detected (>= 250)!")
