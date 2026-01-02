@@ -133,7 +133,7 @@ def main():
     # Solve in chunks for progress bar
     chunk_size = 1
     total = len(hands_list)
-    import time
+
     
     try:
         from tqdm import tqdm
