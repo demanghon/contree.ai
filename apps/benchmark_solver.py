@@ -40,8 +40,8 @@ def main():
     # We need to generate hands until we have enough "Strong" hands (4+ trumps + J + 9)
     # Target: 500 total, with at least 100 strong.
     
-    strong_hands_needed = 10
-    total_hands = 50
+    strong_hands_needed = 100
+    total_hands = 500
     
     final_hands = [] # List of tuples (hands_array, trump)
     
@@ -130,17 +130,64 @@ def main():
     # Solve batch
     # PIMC = 20
     pimc = 1
-    print(f"Solving with PIMC={pimc} at Depth=32...")
+    # Solve in chunks for progress bar
+    chunk_size = 1
+    total = len(hands_list)
+    import time
     
-    (best_cards, best_scores, valid) = coinche_engine.solve_gameplay_batch(
-        flat_hands_in,
-        boards_list,
-        history_list,
-        trumps_list,
-        tricks_won_list,
-        players_list,
-        pimc
-    )
+    try:
+        from tqdm import tqdm
+        pbar = tqdm(total=total, desc="Solving", unit="hand")
+    except ImportError:
+        print(f"Solving {total} hands in batches of {chunk_size}...")
+        pbar = None
+
+    all_best_cards = []
+    all_best_scores = []
+    
+    # Flatten hands is tricky because solve_gameplay_batch expects flat hands for the whole batch.
+    # We need to slice the list of input arrays, THEN flatten the slice.
+    
+    for i in range(0, total, chunk_size):
+        end = min(i + chunk_size, total)
+        
+        # Slice inputs
+        batch_hands_lists = hands_list[i:end]
+        batch_boards = boards_list[i:end]
+        batch_history = history_list[i:end]
+        batch_trumps = trumps_list[i:end]
+        batch_tricks_won = tricks_won_list[i:end]
+        batch_players = players_list[i:end]
+        
+        # Flatten hands for this batch
+        batch_hands_flat = []
+        for h in batch_hands_lists:
+            batch_hands_flat.extend(h)
+            
+        (b_cards, b_scores, b_valid) = coinche_engine.solve_gameplay_batch(
+            batch_hands_flat,
+            batch_boards,
+            batch_history,
+            batch_trumps,
+            batch_tricks_won,
+            batch_players,
+            pimc,
+            22 # TT Log2
+        )
+        
+        all_best_cards.extend(b_cards)
+        all_best_scores.extend(b_scores)
+        
+        if pbar:
+            pbar.update(end - i)
+        else:
+            print(f"Solved {end}/{total}...")
+            
+    if pbar:
+        pbar.close()
+        
+    best_cards = all_best_cards
+    best_scores = all_best_scores
     
     end_time = time.time()
     total_time = end_time - start_time
@@ -195,38 +242,42 @@ def main():
     god_board = [] # Empty board
     god_history = 0
     god_trump = 2 # Hearts
-    god_tricks_won = [0, 0] # Team 0, Team 1
-    god_player = 0 # P0 to lead
+    god_player = 0 # P0 leads
     
-    # 1. Partial Hand Test (4 cards)
-    print("Solving Partial God Hand (4 cards)...")
-    def make_partial_hand(suit):
+    print("Solving Full God Hand (32 cards)...")
+    # P0 has Hearts (Trump)
+    # P1 Spades
+    # P2 Diamonds
+    # P3 Clubs
+    
+    def make_hand(suit):
         h = 0
-        for r in range(4, 8): # Top 4 cards
+        for r in range(8):
             h |= (1 << (suit * 8 + r))
         return h
-        
-    p_hands = [make_partial_hand(2), make_partial_hand(1), make_partial_hand(0), make_partial_hand(3)]
-    
-    coinche_engine.solve_gameplay_batch(
-        p_hands, [god_board], [god_history], [god_trump], [god_tricks_won], [god_player], 1, 20
-    )
-    print("Partial Hand Solved!")
 
-    print("Solving God Hand...")
+    h0 = make_hand(2) # Hearts
+    h1 = make_hand(1) # Spades
+    h2 = make_hand(0) # Diamonds
+    h3 = make_hand(3) # Clubs
+    
+    hands_full = [h0, h1, h2, h3]
+    
+    start_god = time.time()
     (g_best, g_scores, g_valid) = coinche_engine.solve_gameplay_batch(
-        god_hands_flat,
+        hands_full,
         [god_board],
         [god_history],
         [god_trump],
-        [god_tricks_won],
+        [[0, 0]], # tricks_won
         [god_player],
-        1, # Single iteration
-        20 # TT Log2 (16MB)
+        1, # PIMC
+        22 # TT Log2 (64MB)
     )
+    end_god = time.time()
     
     god_score = g_scores[0]
-    print(f"God Hand Score (Full): {god_score}")
+    print(f"God Hand Score: {god_score} (Time: {end_god - start_god:.2f}s)")
     
     if god_score >= 250:
         print("SUCCESS: Capot Detected (>= 250)!")
