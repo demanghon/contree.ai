@@ -9,7 +9,7 @@ fn main() {
 
     println!("Solving {} hands...", batch_size);
     let start = Instant::now();
-    let _scores = solve_hand_batch(hands);
+    let _scores = solve_hand_batch(hands, 1);
     let duration = start.elapsed();
 
     println!("Solved {} hands in {:.4?}", batch_size, duration);
