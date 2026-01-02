@@ -134,12 +134,13 @@ nx run coinche-dataset-generator:generate-gameplay --samples=100000 --threads=8
 
 ### Command Arguments
 
-| Argument      | Description                                           | Default                        | Recommended Usage                                     |
-| ------------- | ----------------------------------------------------- | ------------------------------ | ----------------------------------------------------- |
-| `--samples`   | Total number of samples to generate.                  | `10,000`                       | Increase to `100,000`+ for training.                  |
-| `--pimc`      | Number of PIMC iterations per hand.                   | `0` (Double Dummy)             | Use `20` for robust labels/values. Increases time!    |
-| `--threads`   | Number of CPU threads to use.                         | `4` (Bidding) / `1` (Gameplay) | Set to roughly `CPU Cores - 2`. Reduce if OOM occurs. |
-| `--batchSize` | Number of hands to solve in one batch (Bidding only). | `2,000`                        | Lower to `500-1000` to reduce RAM usage per thread.   |
+| Argument      | Description                                           | Default                        | Recommended Usage                                          |
+| ------------- | ----------------------------------------------------- | ------------------------------ | ---------------------------------------------------------- |
+| `--samples`   | Total number of samples to generate.                  | `10,000`                       | Increase to `100,000`+ for training.                       |
+| `--pimc`      | Number of PIMC iterations per hand.                   | `0` (Double Dummy)             | Use `20` for robust labels/values. Increases time!         |
+| `--threads`   | Number of CPU threads to use.                         | `4` (Bidding) / `1` (Gameplay) | Set to roughly `CPU Cores - 2`. Reduce if OOM occurs.      |
+| `--batchSize` | Number of hands to solve in one batch (Bidding only). | `2,000`                        | Lower to `500-1000` to reduce RAM usage per thread.        |
+| `--tt-log2`   | Log2 of TT Size (Memory Control).                     | `22` (64MB)                    | Reduce to `20` (16MB) or lower if OOM. Increase for speed. |
 
 > **Note**: These commands use the `maturin` tool to compile the Rust code and then run the Python generation script inside `apps/coinche-dataset-generator`.
 

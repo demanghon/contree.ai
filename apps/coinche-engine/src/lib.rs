@@ -13,7 +13,7 @@ use solver::solve;
 
 #[pyfunction]
 fn solve_game(state: &PlayingState) -> PyResult<(i16, u8)> {
-    let (score, best_move) = solve(state, false);
+    let (score, best_move) = solve(state, false, None, None);
     Ok((score, best_move))
 }
 
@@ -28,9 +28,10 @@ fn solve_bidding_batch(
     py: Python,
     hands: Vec<u32>,
     pimc_iterations: usize,
+    tt_log2: Option<u8>,
 ) -> PyResult<Vec<Vec<f32>>> {
     py.allow_threads(|| {
-        let scores = solve_hand_batch(hands, pimc_iterations);
+        let scores = solve_hand_batch(hands, pimc_iterations, tt_log2);
         Ok(scores)
     })
 }
@@ -72,6 +73,7 @@ fn solve_gameplay_batch(
     tricks_won: Vec<Vec<u8>>,
     players: Vec<u8>,
     pimc_iterations: usize,
+    tt_log2: Option<u8>,
 ) -> PyResult<(Vec<u8>, Vec<i16>, Vec<bool>)> {
     py.allow_threads(|| {
         let (best_cards, best_scores, valid) = solve_gameplay_impl(
@@ -82,6 +84,7 @@ fn solve_gameplay_batch(
             tricks_won,
             players,
             pimc_iterations,
+            tt_log2,
         );
         Ok((best_cards, best_scores, valid))
     })

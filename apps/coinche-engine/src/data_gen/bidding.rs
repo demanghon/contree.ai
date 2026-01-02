@@ -68,7 +68,11 @@ pub fn generate_hand_batch(batch_size: usize) -> (Vec<u32>, Vec<u8>) {
     (flattened_hands, strategies)
 }
 
-pub fn solve_hand_batch(flattened_hands: Vec<u32>, pimc_iterations: usize) -> Vec<Vec<f32>> {
+pub fn solve_hand_batch(
+    flattened_hands: Vec<u32>,
+    pimc_iterations: usize,
+    tt_log2: Option<u8>,
+) -> Vec<Vec<f32>> {
     // flattened_hands length should be divisible by 4
     let num_samples = flattened_hands.len() / 4;
 
@@ -128,7 +132,7 @@ pub fn solve_hand_batch(flattened_hands: Vec<u32>, pimc_iterations: usize) -> Ve
                         }
                         state.hands[3] = e;
 
-                        let (s, _) = solve(&state, false);
+                        let (s, _) = solve(&state, false, Some(32), tt_log2);
                         total_score += s as i32;
                     }
 
@@ -142,7 +146,8 @@ pub fn solve_hand_batch(flattened_hands: Vec<u32>, pimc_iterations: usize) -> Ve
                 for trump in 0..4 {
                     let mut state = PlayingState::new(trump as u8);
                     state.hands = hands; // Use the provided full deal
-                    let (score, _) = solve(&state, false);
+                                         // Full depth for accurate Double Dummy (Capot detection)
+                    let (score, _) = solve(&state, false, Some(32), tt_log2);
                     scores.push(score as f32);
                 }
                 scores

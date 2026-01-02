@@ -154,6 +154,7 @@ pub fn solve_gameplay_batch(
     tricks_won: Vec<Vec<u8>>,
     players: Vec<u8>,
     pimc_iterations: usize,
+    tt_log2: Option<u8>,
 ) -> (Vec<u8>, Vec<i16>, Vec<bool>) {
     // flattened_hands is size N*4.
     let num_samples = boards.len();
@@ -224,8 +225,8 @@ pub fn solve_gameplay_batch(
                 }
 
                 if hidden_cards.is_empty() {
-                    // No hidden info (e.g. 2 players left or all revealed?), just solve
-                    let (best_score, best_card) = solve(&state, false);
+                    // No hidden info (e.g. 2 players left or all revealed?), just solve EXACTLY
+                    let (best_score, best_card) = solve(&state, false, Some(32), tt_log2);
                     return SolvedGameplaySample {
                         best_card,
                         best_score,
@@ -252,7 +253,8 @@ pub fn solve_gameplay_batch(
                         }
                     }
 
-                    let (_, move_) = solve(&temp_state, false);
+                    // PIMC Playout: Use FULL depth (32) for accurate Capot/Der scoring
+                    let (_, move_) = solve(&temp_state, false, Some(32), tt_log2);
                     votes[move_ as usize] += 1;
                 }
 
@@ -266,8 +268,8 @@ pub fn solve_gameplay_batch(
                     }
                 }
 
-                // Score: Use Perfect Information Value of the TRUE state
-                let (best_score, _) = solve(&state, false);
+                // Score: Use Perfect Information Value of the TRUE state (Target Label)
+                let (best_score, _) = solve(&state, false, Some(32), tt_log2);
 
                 SolvedGameplaySample {
                     best_card: best_card_pimc,
@@ -276,7 +278,7 @@ pub fn solve_gameplay_batch(
                 }
             } else {
                 // Determine Double Dummy
-                let (best_score, best_card) = solve(&state, false);
+                let (best_score, best_card) = solve(&state, false, Some(32), tt_log2);
                 SolvedGameplaySample {
                     best_card,
                     best_score,

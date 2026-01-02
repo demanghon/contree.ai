@@ -7,9 +7,9 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-def generate_datasets(bidding_samples, gameplay_samples, bidding_output_dir, gameplay_file, batch_size=1000, pimc_iterations=0):
+def generate_datasets(bidding_samples, gameplay_samples, bidding_output_dir, gameplay_file, batch_size=1000, pimc_iterations=0, tt_log2=None):
     import coinche_engine
-    print(f"Starting data generation (PIMC={pimc_iterations})...")
+    print(f"Starting data generation (PIMC={pimc_iterations}, TT_LOG2={tt_log2})...")
     
     # --- BIDDING DATA GENERATION (Crash Resilient) ---
     if bidding_samples > 0:
@@ -88,7 +88,7 @@ def generate_datasets(bidding_samples, gameplay_samples, bidding_output_dir, gam
                 
                 try:
                     # Returns List[List[int]] (scores per sample)
-                    scores_batch = coinche_engine.solve_bidding_batch(hands_slice_list, pimc_iterations)
+                    scores_batch = coinche_engine.solve_bidding_batch(hands_slice_list, pimc_iterations, tt_log2)
                 except Exception as e:
                     print(f"Error solving batch {i}: {e}")
                     break
@@ -316,7 +316,8 @@ def generate_datasets(bidding_samples, gameplay_samples, bidding_output_dir, gam
                         trumps_col,
                         tricks_won_col,
                         players_col,
-                        pimc_iterations
+                        pimc_iterations,
+                        tt_log2
                     )
                     
                     # Filter invalid results (forced moves etc)
@@ -436,6 +437,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=10000, help="Batch size for solving")
     parser.add_argument("--threads", type=int, default=None, help="Number of threads to use (limit CPU usage)")
     parser.add_argument("--pimc", type=int, default=0, help="Number of PIMC iterations per hand (Bidding & Gameplay). 0 = Double Dummy.")
+    parser.add_argument("--tt-log2", type=int, default=None, help="Transposition Table size (log2). Default: None (22 -> 64MB). Example: 24 -> 256MB.")
     
     args = parser.parse_args()
 
@@ -450,7 +452,8 @@ if __name__ == "__main__":
             args.bidding_output, 
             args.gameplay_output,
             args.batch_size,
-            args.pimc
+            args.pimc,
+            args.tt_log2
         )
     except KeyboardInterrupt:
         print("\n\n⚠️ Generation interrupted by user.")

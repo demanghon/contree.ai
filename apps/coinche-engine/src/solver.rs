@@ -54,7 +54,7 @@ static TT_HITS: AtomicU64 = AtomicU64::new(0);
 static HAND_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 // Fixed-size TT
-const TT_SIZE: usize = 1 << 20; // 1 Million entries ~ 16MB
+const TT_SIZE: usize = 1 << 24; // 16 Million entries ~ 256MB
 const TT_MASK: u64 = (TT_SIZE as u64) - 1;
 
 #[derive(Clone, Copy)]
@@ -205,9 +205,21 @@ fn evaluate_state(state: &PlayingState) -> i16 {
     (current_score + estimated_future) as i16
 }
 
-// Iterative Deepening Solve
-pub fn solve(state: &PlayingState, generate_graph: bool) -> (i16, u8) {
-    let mut tt = vec![TTEntry::default(); TT_SIZE];
+// Output: (Score, BestMove)
+pub fn solve(
+    state: &PlayingState,
+    generate_graph: bool,
+    max_depth_force: Option<u8>,
+    tt_log2: Option<u8>,
+) -> (i16, u8) {
+    // Default 22 (64MB) if not provided. 24 was 256MB.
+    let log2 = tt_log2.unwrap_or(22);
+    let tt_size = 1 << log2;
+    // Ensure we don't blow up memory if user asks for too much?
+    // Rust vec will panic on OOM anyway. 1<<28 is 4GB (256M entries * 16 bytes).
+
+    let mut tt = vec![TTEntry::default(); tt_size];
+    let tt_mask = (tt_size - 1) as u64;
 
     let is_first = HAND_COUNT.fetch_add(1, Ordering::Relaxed) == 0;
     if is_first {
@@ -217,31 +229,28 @@ pub fn solve(state: &PlayingState, generate_graph: bool) -> (i16, u8) {
 
     let hash = compute_zobrist_hash(state);
 
-    // Iterative Deepening
-    // Max depth = remaining cards in hand?
-    // state.hands[0].count_ones() is cards per player.
-    // Total depth = 32? No, 8 tricks. Minimax depth is usually counted in ply (player moves).
-    // 8 tricks * 4 players = 32 ply max.
-
     let cards_left = state.hands[state.current_player as usize].count_ones() as u8;
-    let max_depth = min(cards_left * 4, 8); // Depth 8 (2 tricks) for speed
+    // Default logic: depth 8 for speed, unless overridden.
+    let max_depth = if let Some(d) = max_depth_force {
+        // If forcing depth, ensure we don't exceed actual game end or infinite
+        // But min(32) is safe.
+        min(cards_left * 4, d)
+    } else {
+        min(cards_left * 4, 8)
+    };
 
     let mut best_score = 0;
     let mut best_move = 0xFF;
 
-    // We use a small window or full window? Full window for now.
-
     for depth in 1..=max_depth {
-        let (score, mv) = minimax(state, hash, -INF, INF, &mut tt, depth, is_first);
+        let (score, mv) = minimax(state, hash, -INF, INF, &mut tt, tt_mask, depth, is_first);
         best_score = score;
         best_move = mv;
-
-        // Timer check could go here to abort early
     }
 
     if is_first {
-        let nodes = TOTAL_NODES.load(Ordering::Relaxed);
-        let hits = TT_HITS.load(Ordering::Relaxed);
+        let _nodes = TOTAL_NODES.load(Ordering::Relaxed);
+        let _hits = TT_HITS.load(Ordering::Relaxed);
         // debug print
     }
 
@@ -260,6 +269,7 @@ fn minimax(
     mut alpha: i16,
     mut beta: i16,
     tt: &mut [TTEntry],
+    tt_mask: u64,
     depth: u8,
     debug: bool,
 ) -> (i16, u8) {
@@ -279,7 +289,7 @@ fn minimax(
     let beta_norm = beta.saturating_sub(current_points);
 
     // 1. TT Lookup
-    let tt_idx = (hash & TT_MASK) as usize;
+    let tt_idx = (hash & tt_mask) as usize;
     let entry = tt[tt_idx];
 
     if entry.key == hash && entry.depth >= depth {
@@ -320,6 +330,40 @@ fn minimax(
         }
     }
 
+    // Pre-calculate Master Cards for each suit
+    let mut master_ranks = [0u8; 4];
+    for s in 0..4 {
+        let mut max_rank = 0;
+        for p in 0..4 {
+            let hand = state.hands[p];
+            // Check cards of suit s in hand p
+            // We can iterate or use bit intrinsics. Since we just need max rank:
+            // High ranks are at higher bit indices (suit*8 + 7 is Ace).
+            // We can check bits from 7 down to 0.
+            for r in (0..8).rev() {
+                if (hand & (1 << (s * 8 + r))) != 0 {
+                    if r > max_rank {
+                        max_rank = r;
+                    }
+                    break; // Found highest for this hand
+                }
+            }
+        }
+        // Actually we need the GLOBAL max rank for suit s
+        let mut global_max = 0;
+        for p in 0..4 {
+            for r in (0..8).rev() {
+                if (state.hands[p] & (1 << (s * 8 + r))) != 0 {
+                    if r > global_max {
+                        global_max = r;
+                    }
+                    break;
+                }
+            }
+        }
+        master_ranks[s as usize] = global_max as u8;
+    }
+
     moves.sort_by(|&a, &b| {
         if entry.key == hash && a == entry.best_move {
             return std::cmp::Ordering::Less;
@@ -328,12 +372,27 @@ fn minimax(
             return std::cmp::Ordering::Greater;
         }
 
-        let suit_a = a / 8;
-        let suit_b = b / 8;
+        let suit_a = (a / 8) as usize;
+        let suit_b = (b / 8) as usize;
         let rank_a = (a % 8) as usize;
         let rank_b = (b % 8) as usize;
-        let is_trump_a = suit_a == state.trump;
-        let is_trump_b = suit_b == state.trump;
+
+        let is_trump_a = suit_a == state.trump as usize;
+        let is_trump_b = suit_b == state.trump as usize;
+
+        // Master Card Bonus
+        // If a card is the current Master of its suit, high priority.
+        // But only if it captures the trick?
+        // Simple heuristic: If rank == master_ranks[suit], give bonus.
+        let is_master_a = (rank_a as u8) == master_ranks[suit_a];
+        let is_master_b = (rank_b as u8) == master_ranks[suit_b];
+
+        if is_master_a && !is_master_b {
+            return std::cmp::Ordering::Less;
+        }
+        if !is_master_a && is_master_b {
+            return std::cmp::Ordering::Greater;
+        }
 
         if is_trump_a && !is_trump_b {
             return std::cmp::Ordering::Less;
@@ -365,7 +424,16 @@ fn minimax(
             let mut next_state = *state;
             next_state.play_card(i);
             let next_hash = compute_zobrist_hash(&next_state);
-            let (eval, _) = minimax(&next_state, next_hash, alpha, beta, tt, depth - 1, debug);
+            let (eval, _) = minimax(
+                &next_state,
+                next_hash,
+                alpha,
+                beta,
+                tt,
+                tt_mask,
+                depth - 1,
+                debug,
+            );
             if eval > val {
                 val = eval;
                 best_move = i;
@@ -381,7 +449,16 @@ fn minimax(
             let mut next_state = *state;
             next_state.play_card(i);
             let next_hash = compute_zobrist_hash(&next_state);
-            let (eval, _) = minimax(&next_state, next_hash, alpha, beta, tt, depth - 1, debug);
+            let (eval, _) = minimax(
+                &next_state,
+                next_hash,
+                alpha,
+                beta,
+                tt,
+                tt_mask,
+                depth - 1,
+                debug,
+            );
             if eval < val {
                 val = eval;
                 best_move = i;
@@ -437,7 +514,7 @@ mod tests {
         // P0 leads. Should win.
         // Points: A(11) + 7(0) + 8(0) + 9(0) + 10(der) = 21.
 
-        let (score, best_move) = solve(&state, false);
+        let (score, best_move) = solve(&state, false, None, None);
 
         assert_eq!(best_move, card(HEARTS, 7));
         assert_eq!(score, 21);
@@ -463,7 +540,7 @@ mod tests {
         // Der: 10
         // Total: 35.
 
-        let (score, _) = solve(&state, false);
+        let (score, _) = solve(&state, false, None, None);
         assert_eq!(score, 35);
     }
 
@@ -513,7 +590,8 @@ mod tests {
         // Total = 55 (My hand) + 40 (Captured from opps) + 10 (Der) + 90 (Capot) = 195.
         // Opp Points: P1(10C=10), P2(QC=3, KC=4, AC=11, JC=2 = 20), P3(10S=10). Total 40.
 
-        let (score, _) = solve(&state, false);
+        // Use full depth (32) to see end game capot
+        let (score, _) = solve(&state, false, Some(32), None);
         assert_eq!(score, 195);
     }
 }
