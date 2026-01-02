@@ -90,6 +90,36 @@ def main():
         elif is_heuristic_b:
              # B is baseline. How much better is A?
              writer.add_scalar('Tournament/Baseline_Margin', -relative_score, step)
+             
+        # --- Advanced Metrics (Cumulative) ---
+        if engine.metrics.games_played > 0:
+            # Win Rate
+            wr_a = engine.metrics.team_a_wins / engine.metrics.games_played
+            wr_b = engine.metrics.team_b_wins / engine.metrics.games_played
+            writer.add_scalar('Performance/WinRate_A', wr_a, step)
+            writer.add_scalar('Performance/WinRate_B', wr_b, step)
+            
+            # Helper for Bidding Stats
+            def log_bidding_stats(stats, prefix):
+                taken = stats['taken']
+                if taken > 0:
+                    success_rate = stats['made'] / taken
+                    avg_value = stats['total_value'] / taken
+                    writer.add_scalar(f'{prefix}/SuccessRate', success_rate, step)
+                    writer.add_scalar(f'{prefix}/AvgContractValue', avg_value, step)
+            
+            log_bidding_stats(engine.metrics.team_a_bidding_stats, 'Bidding/Team_A')
+            log_bidding_stats(engine.metrics.team_b_bidding_stats, 'Bidding/Team_B')
+            
+            # Helper for Defense Stats
+            def log_defense_stats(stats, prefix):
+                count = stats['count']
+                if count > 0:
+                    avg_score = stats['score'] / count
+                    writer.add_scalar(f'{prefix}/AvgDefenseScore', avg_score, step)
+            
+            log_defense_stats(engine.metrics.team_a_defense_stats, 'Defense/Team_A')
+            log_defense_stats(engine.metrics.team_b_defense_stats, 'Defense/Team_B')
 
     # Final Review
     total_games = args.nb_games * 2 # 2 games per hand
@@ -113,14 +143,40 @@ def main():
         print("DRAW")
     print("="*30 + "\n")
     
+    # Final Stats
+    wr_a = engine.metrics.team_a_wins / total_games
+    wr_b = engine.metrics.team_b_wins / total_games
+    
+    def get_bid_stats(stats):
+        taken = stats['taken']
+        if taken == 0: return "N/A"
+        succ = (stats['made'] / taken) * 100
+        avg = stats['total_value'] / taken
+        return f"{taken} contracts (Succ: {succ:.1f}%, AvgVal: {avg:.1f})"
+        
+    def get_def_stats(stats):
+        count = stats['count']
+        if count == 0: return "N/A"
+        avg = stats['score'] / count
+        return f"{avg:.1f} pts/game ({count} games)"
+
     # Log Final Text Summary
     summary_text = f"### Tournament Results\n\n" \
                    f"**{args.team_a_name}** vs **{args.team_b_name}**\n\n" \
-                   f"- **Hands Played**: {args.nb_games} (Duplicate)\n" \
-                   f"- **Total Score A**: {engine.metrics.team_a_score}\n" \
-                   f"- **Total Score B**: {engine.metrics.team_b_score}\n" \
-                   f"- **Net Diff (B-A)**: {diff}\n"
+                   f"- **Hands Played**: {args.nb_games} (Duplicate, {total_games} games total)\n" \
+                   f"- **Net Diff (B-A)**: {diff} pts\n\n" \
+                   f"#### Team A Stats:\n" \
+                   f"- Score: {engine.metrics.team_a_score} (Avg: {avg_a:.2f})\n" \
+                   f"- Win Rate: {wr_a:.1%}\n" \
+                   f"- Bidding: {get_bid_stats(engine.metrics.team_a_bidding_stats)}\n" \
+                   f"- Defense: {get_def_stats(engine.metrics.team_a_defense_stats)}\n\n" \
+                   f"#### Team B Stats:\n" \
+                   f"- Score: {engine.metrics.team_b_score} (Avg: {avg_b:.2f})\n" \
+                   f"- Win Rate: {wr_b:.1%}\n" \
+                   f"- Bidding: {get_bid_stats(engine.metrics.team_b_bidding_stats)}\n" \
+                   f"- Defense: {get_def_stats(engine.metrics.team_b_defense_stats)}\n"
     writer.add_text("Final_Results", summary_text, 0)
+    print(summary_text)
     
     writer.flush()
     writer.close()
