@@ -332,36 +332,27 @@ fn minimax(
 
     // Pre-calculate Master Cards for each suit
     let mut master_ranks = [0u8; 4];
+
+    // Combine all hands to find remaining cards in the game
+    let combined_hands = state.hands[0] | state.hands[1] | state.hands[2] | state.hands[3];
+
     for s in 0..4 {
-        let mut max_rank = 0;
-        for p in 0..4 {
-            let hand = state.hands[p];
-            // Check cards of suit s in hand p
-            // We can iterate or use bit intrinsics. Since we just need max rank:
-            // High ranks are at higher bit indices (suit*8 + 7 is Ace).
-            // We can check bits from 7 down to 0.
-            for r in (0..8).rev() {
-                if (hand & (1 << (s * 8 + r))) != 0 {
-                    if r > max_rank {
-                        max_rank = r;
-                    }
-                    break; // Found highest for this hand
-                }
-            }
+        // Mask for the specific suit (8 bits)
+        // Shift 0xFF to the suit position (0, 8, 16, 24)
+        let suit_mask = 0xFF << (s * 8);
+        let suit_cards = combined_hands & suit_mask;
+
+        if suit_cards != 0 {
+            // Find highest set bit index (0-31)
+            // leading_zeros returns count of 0s from MSB (32-bit integer).
+            // So 31 - leading_zeros is the index of the highest 1 bit.
+            let highest_bit = 31 - suit_cards.leading_zeros();
+            // Rank is bit % 8
+            master_ranks[s as usize] = (highest_bit % 8) as u8;
+        } else {
+            // No cards of this suit left
+            master_ranks[s as usize] = 0;
         }
-        // Actually we need the GLOBAL max rank for suit s
-        let mut global_max = 0;
-        for p in 0..4 {
-            for r in (0..8).rev() {
-                if (state.hands[p] & (1 << (s * 8 + r))) != 0 {
-                    if r > global_max {
-                        global_max = r;
-                    }
-                    break;
-                }
-            }
-        }
-        master_ranks[s as usize] = global_max as u8;
     }
 
     moves.sort_by(|&a, &b| {

@@ -131,10 +131,11 @@ def main():
     # PIMC = 20
     pimc = 1
     # Solve in chunks for progress bar
-    chunk_size = 1
+    # Batch size needs to be large enough to saturate CPU cores (Rayon parallelizes within batch)
+    # 1 = Single Threaded. 100 = Uses up to 100 threads comfortably.
+    chunk_size = 100 
     total = len(hands_list)
 
-    
     try:
         from tqdm import tqdm
         pbar = tqdm(total=total, desc="Solving", unit="hand")
