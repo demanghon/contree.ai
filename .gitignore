@@ -47,3 +47,4 @@ apps/coinche-engine/target
 apps/coinche-api/__pycache__
 dataset/temp_bidding
 dataset/temp_bidding_small
+apps/coinche-engine/.venv
