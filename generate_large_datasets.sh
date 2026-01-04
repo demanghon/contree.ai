@@ -14,11 +14,14 @@ BIDDING_SAMPLES=300000
 GAMEPLAY_SAMPLES=1000000
 
 # Directory for outputs
-DIST_DIR="../../dist/datasets"
+DIST_DIR="dist/datasets"
 mkdir -p $DIST_DIR
 
+# Activate Python Environment
+source apps/coinche-engine/.venv/bin/activate || { echo "❌ Could not activate venv"; exit 1; }
+
 # Script Path
-SCRIPT="generate_datasets.py"
+SCRIPT="apps/coinche-dataset-generator/generate_datasets.py"
 SCRIPT_DIR="apps/coinche-dataset-generator"
 
 # Transposition Table Size
@@ -33,7 +36,8 @@ echo "  Gameplay Samples: $GAMEPLAY_SAMPLES"
 echo "  TT Log2 Size:     $TT_LOG2"
 echo "========================================================"
 
-cd $SCRIPT_DIR || { echo "❌ Could not change directory to $SCRIPT_DIR"; exit 1; }
+# Remove cd $SCRIPT_DIR command as we run from root
+# cd $SCRIPT_DIR || { echo "❌ Could not change directory to $SCRIPT_DIR"; exit 1; }
 
 # Function to run generation
 run_generation() {
