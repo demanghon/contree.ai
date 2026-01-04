@@ -17,9 +17,6 @@ GAMEPLAY_SAMPLES=1000000
 DIST_DIR="dist/datasets"
 mkdir -p $DIST_DIR
 
-# Activate Python Environment
-source apps/coinche-engine/.venv/bin/activate || { echo "❌ Could not activate venv"; exit 1; }
-
 # Script Path
 SCRIPT="apps/coinche-dataset-generator/generate_datasets.py"
 SCRIPT_DIR="apps/coinche-dataset-generator"
