@@ -51,7 +51,7 @@ run_generation() {
     
     start_time=$(date +%s)
     
-    if [ "$TYPE" == "bidding" ]; then
+    if [ "$TYPE" = "bidding" ]; then
         # Bidding output is a DIRECTORY (partitioned parquet)
         # We append the PIMC suffix to the base directory
         OUT_PATH="$DIST_DIR/$OUTPUT_NAME"
@@ -65,7 +65,7 @@ run_generation() {
             --batch-size 1000 \
             --threads 0 # 0 = All Cores
             
-    elif [ "$TYPE" == "gameplay" ]; then
+    elif [ "$TYPE" = "gameplay" ]; then
         # Gameplay output is a FILE
         OUT_PATH="$DIST_DIR/$OUTPUT_NAME"
         
