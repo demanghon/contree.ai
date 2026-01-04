@@ -16,7 +16,14 @@ pub const NO_TRUMP: u8 = 4;
 pub const ALL_TRUMP: u8 = 5;
 
 // Ranks (0-7)
-// 7, 8, 9, 10, J, Q, K, A
+pub const RANK_7: u8 = 0;
+pub const RANK_8: u8 = 1;
+pub const RANK_9: u8 = 2;
+pub const RANK_10: u8 = 3;
+pub const RANK_J: u8 = 4;
+pub const RANK_Q: u8 = 5;
+pub const RANK_K: u8 = 6;
+pub const RANK_A: u8 = 7;
 
 // Points
 // Non-Trump: 7=0, 8=0, 9=0, 10=10, J=2, Q=3, K=4, A=11

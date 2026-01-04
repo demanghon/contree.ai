@@ -196,8 +196,8 @@ mod tests {
     fn test_initial_legal_bids() {
         // No current bid -> all bids are legal.
         let bids = legal_bids(None);
-        // 9 values * 6 suits = 54 possible bids.
-        assert_eq!(bids.len(), 54);
+        // 10 values * 6 suits = 60 possible bids.
+        assert_eq!(bids.len(), 60);
         // First bid should be the lowest value and suit (80, Clubs).
         assert_eq!(bids[0], Bid::new(80, 0));
     }

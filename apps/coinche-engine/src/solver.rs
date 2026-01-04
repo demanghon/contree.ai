@@ -57,6 +57,8 @@ static HAND_COUNT: AtomicUsize = AtomicUsize::new(0);
 const TT_SIZE: usize = 1 << 24; // 16 Million entries ~ 256MB
 const TT_MASK: u64 = (TT_SIZE as u64) - 1;
 
+use std::cell::RefCell;
+
 #[derive(Clone, Copy)]
 struct TTEntry {
     key: u64, // For collision detection
@@ -64,6 +66,7 @@ struct TTEntry {
     best_move: u8,
     flag: u8,
     depth: u8, // Added for Iterative Deepening
+    gen: u32,  // Generation ID for zero-cost reset
 }
 
 impl Default for TTEntry {
@@ -73,9 +76,16 @@ impl Default for TTEntry {
             score: 0,
             best_move: 0xFF,
             flag: 0,
-            depth: 0, // Default depth
+            depth: 0,
+            gen: 0,
         }
     }
+}
+
+// Thread Local Storage for Persistent TT
+thread_local! {
+    static TT: RefCell<Vec<TTEntry>> = RefCell::new(vec![TTEntry::default(); TT_SIZE]);
+    static TT_GEN: RefCell<u32> = RefCell::new(1); // Start at generation 1
 }
 
 // Helper to check if we are solving the first hand (for debug stats)
@@ -208,18 +218,23 @@ fn evaluate_state(state: &PlayingState) -> i16 {
 // Output: (Score, BestMove)
 pub fn solve(
     state: &PlayingState,
-    generate_graph: bool,
+    _generate_graph: bool,
     max_depth_force: Option<u8>,
-    tt_log2: Option<u8>,
+    _tt_log2: Option<u8>,
 ) -> (i16, u8) {
-    // Default 22 (64MB) if not provided. 24 was 256MB.
-    let log2 = tt_log2.unwrap_or(22);
-    let tt_size = 1 << log2;
-    // Ensure we don't blow up memory if user asks for too much?
-    // Rust vec will panic on OOM anyway. 1<<28 is 4GB (256M entries * 16 bytes).
+    // 1. Manage Generation ID (Zero-Cost Clear)
+    let my_gen = TT_GEN.with(|g| {
+        let mut gen = g.borrow_mut();
+        // Increment generation for new solve.
+        // If we wrap around (very rare), we should technically clear, but 4 billion hands is fine.
+        *gen = gen.wrapping_add(1);
+        if *gen == 0 {
+            *gen = 1;
+        } // Avoid 0 if we want default to be 0
+        *gen
+    });
 
-    let mut tt = vec![TTEntry::default(); tt_size];
-    let tt_mask = (tt_size - 1) as u64;
+    // We don't allocate TT here anymore!
 
     let is_first = HAND_COUNT.fetch_add(1, Ordering::Relaxed) == 0;
     if is_first {
@@ -230,10 +245,7 @@ pub fn solve(
     let hash = compute_zobrist_hash(state);
 
     let cards_left = state.hands[state.current_player as usize].count_ones() as u8;
-    // Default logic: depth 8 for speed, unless overridden.
     let max_depth = if let Some(d) = max_depth_force {
-        // If forcing depth, ensure we don't exceed actual game end or infinite
-        // But min(32) is safe.
         min(cards_left * 4, d)
     } else {
         min(cards_left * 4, 8)
@@ -243,46 +255,25 @@ pub fn solve(
     let mut best_move = 0xFF;
 
     fn try_claim(state: &PlayingState) -> Option<(i16, u8)> {
-        // Basic Claim Check:
-        // 1. I am leading (trick_size == 0)
-        // 2. I have Master Control (e.g. all remaining trumps, and opponents have none)
-        // For now, implement the "God Hand" specific check: "I have trumps, they have none".
-
-        // Only valid if I am leading
         if state.trick_size > 0 {
             return None;
         }
-
         let p = state.current_player as usize;
         let my_hand = state.hands[p];
-
-        // Check if I have only trumps?
-        // Or simpler: Check if I have ALL highest trumps?
-        // The "God Hand" case: I have 8 trumps. They have 0.
-
-        // Construct Trump Mask
         let trump_suit = state.trump as usize;
         let trump_mask = 0xFF << (trump_suit * 8);
 
-        // My non-trump cards
         if (my_hand & !trump_mask) != 0 {
-            return None; // I have other suits, might lose lead
+            return None;
         }
-
-        // Opponents trumps
         let opp_mask =
             state.hands[(p + 1) % 4] | state.hands[(p + 2) % 4] | state.hands[(p + 3) % 4];
         if (opp_mask & trump_mask) != 0 {
-            return None; // Opponents have trumps
+            return None;
         }
 
-        // SUCCESS: I have only trumps, they have none. I win everything.
-
-        // Calculate total points remaining in ALL hands
         let all_hands = my_hand | opp_mask;
         let mut points = 0;
-
-        // Sum points of all cards remaining
         for i in 0..32 {
             if (all_hands & (1 << i)) != 0 {
                 let suit = i / 8;
@@ -294,34 +285,25 @@ pub fn solve(
                 }
             }
         }
-
-        // Add 10 de Der (I win last trick essentially)
         points += 10;
-
-        // Check Capot
-        // If opponents have won 0 tricks so far, and I win all remaining -> Capot.
         let team = p % 2;
         let opp_team = 1 - team;
         if state.tricks_won[opp_team] == 0 {
             points += 90;
         }
 
-        // Return max possible score (Current + Remaining)
-        // And best move? Just play any card (e.g. highest trump)
-        let best_move = my_hand.trailing_zeros() as u8; // Just pick first available
-
+        let best_move = my_hand.trailing_zeros() as u8;
         Some(((state.points[team] as i16) + points, best_move))
     }
 
     for depth in 1..=max_depth {
-        // Optimization: Check for Claim before search
         if depth == 1 {
             if let Some((claim_score, claim_move)) = try_claim(state) {
                 return (claim_score, claim_move);
             }
         }
 
-        let (score, mv) = minimax(state, hash, -INF, INF, &mut tt, tt_mask, depth, is_first);
+        let (score, mv) = minimax(state, hash, -INF, INF, my_gen, depth, is_first);
         best_score = score;
         best_move = mv;
     }
@@ -329,7 +311,6 @@ pub fn solve(
     if is_first {
         let _nodes = TOTAL_NODES.load(Ordering::Relaxed);
         let _hits = TT_HITS.load(Ordering::Relaxed);
-        // debug print
     }
 
     (best_score, best_move)
@@ -346,8 +327,7 @@ fn minimax(
     hash: u64,
     mut alpha: i16,
     mut beta: i16,
-    tt: &mut [TTEntry],
-    tt_mask: u64,
+    my_gen: u32, // New argument: Current Generation ID
     depth: u8,
     debug: bool,
 ) -> (i16, u8) {
@@ -366,11 +346,16 @@ fn minimax(
     let alpha_norm = alpha.saturating_sub(current_points);
     let beta_norm = beta.saturating_sub(current_points);
 
-    // 1. TT Lookup
-    let tt_idx = (hash & tt_mask) as usize;
-    let entry = tt[tt_idx];
+    // 1. TT Lookup (Thread Local)
+    let tt_idx = (hash & TT_MASK) as usize;
 
-    if entry.key == hash && entry.depth >= depth {
+    // We need to read TT entry.
+    // Optimization: Copy entry struct to stack to release borrow immediately?
+    // TTEntry is small (16 bytes).
+    let entry = TT.with(|tt| tt.borrow()[tt_idx]);
+
+    // Check Key AND Generation
+    if entry.key == hash && entry.gen == my_gen && entry.depth >= depth {
         // Only use if entry is from a deeper or equal search
         if debug {
             TT_HITS.fetch_add(1, Ordering::Relaxed);
@@ -434,11 +419,14 @@ fn minimax(
     }
 
     moves.sort_by(|&a, &b| {
-        if entry.key == hash && a == entry.best_move {
-            return std::cmp::Ordering::Less;
-        }
-        if entry.key == hash && b == entry.best_move {
-            return std::cmp::Ordering::Greater;
+        // Use entry from TT if valid
+        if entry.key == hash && entry.gen == my_gen {
+            if a == entry.best_move {
+                return std::cmp::Ordering::Less;
+            }
+            if b == entry.best_move {
+                return std::cmp::Ordering::Greater;
+            }
         }
 
         let suit_a = (a / 8) as usize;
@@ -507,8 +495,7 @@ fn minimax(
                 next_hash,
                 alpha,
                 beta,
-                tt,
-                tt_mask,
+                my_gen, // Pass current generation
                 depth - 1,
                 debug,
             );
@@ -532,8 +519,7 @@ fn minimax(
                 next_hash,
                 alpha,
                 beta,
-                tt,
-                tt_mask,
+                my_gen, // Pass current generation
                 depth - 1,
                 debug,
             );
@@ -557,13 +543,18 @@ fn minimax(
         0
     };
 
-    tt[tt_idx] = TTEntry {
-        key: hash,
-        score: val_norm,
-        best_move,
-        flag,
-        depth, // Store the depth at which this entry was computed
-    };
+    // Store in TT (Thread Local)
+    TT.with(|tt| {
+        let mut tt = tt.borrow_mut();
+        tt[tt_idx] = TTEntry {
+            key: hash,
+            score: val_norm,
+            best_move,
+            flag,
+            depth,
+            gen: my_gen, // Store current generation
+        };
+    });
 
     (val, best_move)
 }
