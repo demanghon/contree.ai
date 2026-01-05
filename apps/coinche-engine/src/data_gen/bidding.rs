@@ -5,7 +5,7 @@ use crate::solver::solve;
 use arrow::array::{Float32Array, Int16Array, ListArray, UInt32Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
-use indicatif::{ParallelProgressIterator, ProgressIterator};
+use indicatif::{ParallelProgressIterator, ProgressBar, ProgressIterator, ProgressStyle};
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
 use rand::distributions::WeightedIndex;
@@ -215,9 +215,19 @@ pub fn solve_hand_batch(
     // flattened_hands length should be divisible by 4
     let num_samples = flattened_hands.len() / 4;
 
+    let pb = ProgressBar::new(num_samples as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template(
+                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
+            )
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+
     let scores_batch: Vec<Vec<f32>> = flattened_hands
         .par_chunks(4)
-        .progress_count(num_samples as u64)
+        .progress_with(pb)
         .map(|hand_chunk| {
             // hand_chunk is &[u32] of length 4
             let mut hands = [0u32; 4];
