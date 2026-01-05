@@ -298,9 +298,11 @@ pub fn solve(
 
     for depth in 1..=max_depth {
         if depth == 1 {
+            /*
             if let Some((claim_score, claim_move)) = try_claim(state) {
                 return (claim_score, claim_move);
             }
+            */
         }
 
         let (score, mv) = minimax(state, hash, -INF, INF, my_gen, depth, is_first);
@@ -327,13 +329,14 @@ fn minimax(
     hash: u64,
     mut alpha: i16,
     mut beta: i16,
-    my_gen: u32, // New argument: Current Generation ID
+    my_gen: u32,
     depth: u8,
     debug: bool,
 ) -> (i16, u8) {
     if debug {
         TOTAL_NODES.fetch_add(1, Ordering::Relaxed);
     }
+
     if state.is_terminal() {
         return (state.points[0] as i16, 0xFF);
     }
@@ -341,37 +344,26 @@ fn minimax(
         return (evaluate_state(state), 0xFF);
     }
 
-    // Score Normalization
     let current_points = state.points[0] as i16;
     let alpha_norm = alpha.saturating_sub(current_points);
     let beta_norm = beta.saturating_sub(current_points);
 
-    // 1. TT Lookup (Thread Local)
+    // 1. TT Lookup
     let tt_idx = (hash & TT_MASK) as usize;
-
-    // We need to read TT entry.
-    // Optimization: Copy entry struct to stack to release borrow immediately?
-    // TTEntry is small (16 bytes).
     let entry = TT.with(|tt| tt.borrow()[tt_idx]);
 
-    // Check Key AND Generation
     if entry.key == hash && entry.gen == my_gen && entry.depth >= depth {
-        // Only use if entry is from a deeper or equal search
         if debug {
             TT_HITS.fetch_add(1, Ordering::Relaxed);
         }
-
         if entry.flag == 0 {
-            // Exact score
             return (entry.score + current_points, entry.best_move);
         } else if entry.flag == 1 {
-            // Lowerbound
             if entry.score >= beta_norm {
                 return (entry.score + current_points, entry.best_move);
             }
             alpha = max(alpha, entry.score + current_points);
         } else if entry.flag == 2 {
-            // Upperbound
             if entry.score <= alpha_norm {
                 return (entry.score + current_points, entry.best_move);
             }
@@ -386,39 +378,63 @@ fn minimax(
     let mut best_move = 0xFF;
     let is_maximizing = state.current_player % 2 == 0;
 
-    let mut moves = Vec::with_capacity(8);
-    for i in 0..32 {
-        if (legal_moves_mask & (1 << i)) != 0 {
-            moves.push(i as u8);
-        }
+    // SCALAR REPLACEMENT: Array instead of Vec
+    let mut moves = [0u8; 8];
+    let mut n_moves = 0;
+
+    // Unroll manually or iterate logic?
+    // Hand is 32 bits, but checking 32 bits is fast.
+    let mut m = legal_moves_mask;
+    while m != 0 {
+        let i = m.trailing_zeros(); // 0-31
+        moves[n_moves] = i as u8;
+        n_moves += 1;
+        m &= !(1 << i);
     }
+    let moves_slice = &mut moves[0..n_moves];
 
-    // Pre-calculate Master Cards for each suit
+    // ... (Sorting Logic - keeping same logic but adapting to slice) ...
+    // Note: sorting logic is identical, just need to copy master_ranks calculation.
+
     let mut master_ranks = [0u8; 4];
-
-    // Combine all hands to find remaining cards in the game
     let combined_hands = state.hands[0] | state.hands[1] | state.hands[2] | state.hands[3];
-
     for s in 0..4 {
-        // Mask for the specific suit (8 bits)
-        // Shift 0xFF to the suit position (0, 8, 16, 24)
         let suit_mask = 0xFF << (s * 8);
         let suit_cards = combined_hands & suit_mask;
-
         if suit_cards != 0 {
-            // Find highest set bit index (0-31)
-            // leading_zeros returns count of 0s from MSB (32-bit integer).
-            // So 31 - leading_zeros is the index of the highest 1 bit.
-            let highest_bit = 31 - suit_cards.leading_zeros();
-            // Rank is bit % 8
-            master_ranks[s as usize] = (highest_bit % 8) as u8;
+            let mut best_rank = 0;
+            let mut max_str = -1;
+            let mut c = suit_cards;
+            // Iterate bits
+            while c != 0 {
+                let i = c.trailing_zeros(); // bit index 0-31
+                c &= !(1 << i); // clear bit
+
+                let rank = (i % 8) as usize;
+
+                let str = if (s as u8) == state.trump {
+                    crate::gameplay::playing::RANK_STRENGTH_TRUMP[rank]
+                } else {
+                    crate::gameplay::playing::RANK_STRENGTH_NON_TRUMP[rank]
+                };
+
+                // Tie-breaking: if strength equal? (Not possible in single suit usually unless non-trump 7/8/9)
+                // If equal, higher rank index (A vs 10 in non-trump? No A>10).
+                // 7,8,9 in non-trump all 0 pts but strength 0,1,2?
+                // RANK_STRENGTH array handles strength order.
+
+                if (str as i32) > max_str {
+                    max_str = str as i32;
+                    best_rank = rank as u8;
+                }
+            }
+            master_ranks[s as usize] = best_rank;
         } else {
-            // No cards of this suit left
             master_ranks[s as usize] = 0;
         }
     }
 
-    moves.sort_by(|&a, &b| {
+    moves_slice.sort_unstable_by(|&a, &b| {
         // Use entry from TT if valid
         if entry.key == hash && entry.gen == my_gen {
             if a == entry.best_move {
@@ -433,20 +449,8 @@ fn minimax(
         let suit_b = (b / 8) as usize;
         let rank_a = (a % 8) as usize;
         let rank_b = (b % 8) as usize;
-
         let is_trump_a = suit_a == state.trump as usize;
         let is_trump_b = suit_b == state.trump as usize;
-
-        // Master Card Bonus
-        let is_master_a = (rank_a as u8) == master_ranks[suit_a];
-        let is_master_b = (rank_b as u8) == master_ranks[suit_b];
-
-        if is_master_a && !is_master_b {
-            return std::cmp::Ordering::Less;
-        }
-        if !is_master_a && is_master_b {
-            return std::cmp::Ordering::Greater;
-        }
 
         if is_trump_a && !is_trump_b {
             return std::cmp::Ordering::Less;
@@ -466,71 +470,111 @@ fn minimax(
             crate::gameplay::playing::RANK_STRENGTH_NON_TRUMP[rank_b]
         };
 
-        // NEW LOGIC:
-        // If I am playing a Master (Winning), prefer High Strength (Greedy).
-        // If I am NOT Master (Losing/Following), prefer Low Strength (Conservative).
-
-        if is_master_a || is_master_b {
-            // If one is master and other isn't, we handled it above.
-            // If BOTH are masters (e.g. different suits?), sort High Strength.
-            str_b.cmp(&str_a)
-        } else {
-            // Neither is master. Assuming losing or just following.
-            // Prioritize LOW strength -> Ascending
-            str_a.cmp(&str_b)
-        }
+        // Sort by Strength Descending
+        str_b.cmp(&str_a)
     });
 
-    let mut val;
+    let mut val = if is_maximizing { -INF } else { INF };
     let original_alpha = alpha;
 
-    if is_maximizing {
-        val = -INF;
-        for &i in &moves {
-            let mut next_state = *state;
-            next_state.play_card(i);
-            let next_hash = compute_zobrist_hash(&next_state);
-            let (eval, _) = minimax(
-                &next_state,
-                next_hash,
-                alpha,
-                beta,
-                my_gen, // Pass current generation
-                depth - 1,
-                debug,
-            );
+    for &i in moves_slice.iter() {
+        // INCREMENTAL HASH CALCULATION
+        let mut next_hash = hash;
+        let p = state.current_player as usize;
+
+        // 1. Remove played card from hand hash
+        // Note: card i is 0-31. ZOBRIST.hand[p][i]
+        next_hash ^= ZOBRIST.hand[p][i as usize];
+
+        // 2. Remove Turn Hash (Old Player)
+        next_hash ^= ZOBRIST.turn[p];
+
+        // 3. Add to Trick Hash
+        // Problem: ZOBRIST.trick index?
+        // In previous implementation: h ^= ZOBRIST.trick[p][card]
+        // So we add it here.
+        next_hash ^= ZOBRIST.trick[p][i as usize];
+
+        // 4. Update Turn (Predict Next Turn)
+        // If trick complete, turn goes to winner. If not, next player.
+        // We can't know winner trivially without playing?
+        // We simulate the trick completion logic below anyway.
+
+        // COPY STATE (Still copying for now, Phase 1)
+        let mut next_state = *state;
+        next_state.play_card(i);
+
+        // Check if trick was cleared in `play_card`
+        // `play_card` clears trick if size was 4.
+        // If `state.trick_size` was 3, then it just cleared.
+        // But `next_state` has empty trick if cleared.
+
+        if state.trick_size == 3 {
+            // Trick Completed and Cleared
+            // We need to:
+            // a) Remove the cards from `next_hash` that were just simulated to be in trick
+            //    Wait, `play_card` in `next_state` has already emptied `current_trick`.
+            //    So `next_state` has no trick cards.
+            //    Our `next_hash` currently includes the card `i` we just added.
+            //    And it includes the 3 previous cards from `state.current_trick`.
+            //    So we must XOR them OUT.
+
+            // Remove previous cards in trick
+            for prev_p in 0..4 {
+                let prev_c = state.current_trick[prev_p];
+                if prev_c != 0xFF {
+                    next_hash ^= ZOBRIST.trick[prev_p][prev_c as usize];
+                }
+            }
+            // Remove the card we just played (since it was cleared too)
+            next_hash ^= ZOBRIST.trick[p][i as usize];
+
+            // Update Turn: Next state already has correct `current_player` (winner).
+            next_hash ^= ZOBRIST.turn[next_state.current_player as usize];
+
+            // Update Capot Potential (Has Won Trick)
+            // If winner's team hadn't won a trick before, update hash
+            // We need to check if status changed.
+            // Check `state.tricks_won` vs `next_state.tricks_won`?
+            // `play_card` updates `tricks_won`.
+            // if state.tricks_won[winner_team] == 0 && next_state.tricks_won[winner_team] > 0
+            if state.tricks_won[0] == 0 && next_state.tricks_won[0] > 0 {
+                next_hash ^= ZOBRIST.has_won_trick[0];
+            }
+            if state.tricks_won[1] == 0 && next_state.tricks_won[1] > 0 {
+                next_hash ^= ZOBRIST.has_won_trick[1];
+            }
+        } else {
+            // Trick Continues
+            let next_player = (p + 1) % 4;
+            next_hash ^= ZOBRIST.turn[next_player];
+        }
+
+        let (eval, _) = minimax(
+            &next_state,
+            next_hash,
+            alpha,
+            beta,
+            my_gen,
+            depth - 1,
+            debug,
+        );
+
+        if is_maximizing {
             if eval > val {
                 val = eval;
                 best_move = i;
             }
             alpha = max(alpha, val);
-            if beta <= alpha {
-                break;
-            }
-        }
-    } else {
-        val = INF;
-        for &i in &moves {
-            let mut next_state = *state;
-            next_state.play_card(i);
-            let next_hash = compute_zobrist_hash(&next_state);
-            let (eval, _) = minimax(
-                &next_state,
-                next_hash,
-                alpha,
-                beta,
-                my_gen, // Pass current generation
-                depth - 1,
-                debug,
-            );
+        } else {
             if eval < val {
                 val = eval;
                 best_move = i;
             }
             beta = min(beta, val);
-            if beta <= alpha {
-                break;
-            }
+        }
+        if beta <= alpha {
+            break;
         }
     }
 
@@ -543,7 +587,6 @@ fn minimax(
         0
     };
 
-    // Store in TT (Thread Local)
     TT.with(|tt| {
         let mut tt = tt.borrow_mut();
         tt[tt_idx] = TTEntry {
@@ -552,7 +595,7 @@ fn minimax(
             best_move,
             flag,
             depth,
-            gen: my_gen, // Store current generation
+            gen: my_gen,
         };
     });
 

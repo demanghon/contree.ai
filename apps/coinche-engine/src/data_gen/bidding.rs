@@ -5,14 +5,17 @@ use crate::solver::solve;
 use arrow::array::{Float32Array, Int16Array, ListArray, UInt32Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
-use indicatif::{ParallelProgressIterator, ProgressBar, ProgressIterator, ProgressStyle};
+use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
 use rand::distributions::WeightedIndex;
 use rand::prelude::*;
 use rayon::prelude::*;
 use std::fs::File;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 use super::common::{generate_biased_hands, GenStrategy};
 
@@ -219,11 +222,33 @@ pub fn solve_hand_batch(
     pb.set_style(
         ProgressStyle::default_bar()
             .template(
-                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
+                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}",
             )
             .unwrap()
             .progress_chars("#>-"),
     );
+
+    let weak_count = Arc::new(AtomicUsize::new(0));
+    let capot_count = Arc::new(AtomicUsize::new(0));
+    let running = Arc::new(AtomicBool::new(true));
+
+    // Spawn stats updater
+    let pb_clone = pb.clone();
+    let weak_clone_monitor = weak_count.clone();
+    let capot_clone_monitor = capot_count.clone();
+    let running_monitor = running.clone();
+
+    thread::spawn(move || {
+        while running_monitor.load(Ordering::Relaxed) {
+            let w = weak_clone_monitor.load(Ordering::Relaxed);
+            let c = capot_clone_monitor.load(Ordering::Relaxed);
+            pb_clone.set_message(format!("Weak: {} Capot: {}", w, c));
+            thread::sleep(Duration::from_millis(500));
+        }
+    });
+
+    let weak_ref = weak_count.clone();
+    let capot_ref = capot_count.clone();
 
     let scores_batch: Vec<Vec<f32>> = flattened_hands
         .par_chunks(4)
@@ -253,17 +278,21 @@ pub fn solve_hand_batch(
                     // 1. FILTER WEAK HANDS (Junk Hand Heuristic)
                     let potential = evaluate_hand_potential(south_hand, trump as u8);
 
+                    /*
                     if potential >= 10000 {
                         // FORCE CAPOT DETECTED
+                        capot_ref.fetch_add(1, Ordering::Relaxed);
                         scores.push(252.0);
                         continue;
                     }
 
                     if potential < 40 {
                         // Skip PIMC, return fallback
+                        weak_ref.fetch_add(1, Ordering::Relaxed);
                         scores.push(compute_face_value(south_hand, trump as u8));
                         continue;
                     }
+                    */
 
                     let mut total_score: i32 = 0;
 
@@ -314,6 +343,13 @@ pub fn solve_hand_batch(
             }
         })
         .collect();
+
+    running.store(false, Ordering::Relaxed);
+    println!(
+        "Stats: Weak Hands: {}, Force Capot: {}",
+        weak_count.load(Ordering::Relaxed),
+        capot_count.load(Ordering::Relaxed)
+    );
 
     scores_batch
 }

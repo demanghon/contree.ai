@@ -12,8 +12,9 @@ use pyo3::prelude::*;
 use solver::solve;
 
 #[pyfunction]
-fn solve_game(state: &PlayingState) -> PyResult<(i16, u8)> {
-    let (score, best_move) = solve(state, false, None, None);
+#[pyo3(signature = (state, max_depth=None))]
+fn solve_game(state: &PlayingState, max_depth: Option<u8>) -> PyResult<(i16, u8)> {
+    let (score, best_move) = solve(state, false, max_depth, None);
     Ok((score, best_move))
 }
 
@@ -24,6 +25,7 @@ fn generate_bidding_hands(num_samples: usize) -> PyResult<(Vec<u32>, Vec<u8>)> {
 }
 
 #[pyfunction]
+#[pyo3(signature = (hands, pimc_iterations, tt_log2=None))]
 fn solve_bidding_batch(
     py: Python,
     hands: Vec<u32>,
@@ -64,6 +66,7 @@ fn generate_raw_gameplay_batch(
 }
 
 #[pyfunction]
+#[pyo3(signature = (hands, boards, history, trumps, tricks_won, players, pimc_iterations, tt_log2=None))]
 fn solve_gameplay_batch(
     py: Python,
     hands: Vec<u32>,
