@@ -36,7 +36,7 @@ void test_random_hands() {
     
     // Solve with random contract
     // Contract: Spades, 80, Player 1
-    int score = solver.solve(hands, Suit::SPADES, 80, 1, current_trick, 1, 0, 0);
+    int score = solver.solve(hands, Suit::SPADES, 1, current_trick, 1, 0, 0);
 
     std::cout << "Random Hand Score: " << score << std::endl;
 
@@ -101,7 +101,7 @@ void test_belote_split() {
     
     // Contract: Hearts, 80, Player 0
     // Partners P0 and P2 have all trumps + aces. Capot is guaranteed.
-    int score = solver.solve(hands, Suit::HEARTS, 80, 0, current_trick, 0, 0, 0);
+    int score = solver.solve(hands, Suit::HEARTS, 0, current_trick, 0, 0, 0);
 
     std::cout << "Score obtained (Split Belote): " << score << std::endl;
 
@@ -146,7 +146,7 @@ void test_capot_scoring() {
     
     // Contract: Hearts, 80, Player 0 (North)
     // Starter: 0
-    int score = solver.solve(hands, Suit::HEARTS, 80, 0, current_trick, 0, 0, 0);
+    int score = solver.solve(hands, Suit::HEARTS, 0, current_trick, 0, 0, 0);
 
     std::cout << "Score obtained: " << score << std::endl;
 

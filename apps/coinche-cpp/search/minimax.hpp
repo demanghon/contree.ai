@@ -13,6 +13,7 @@ struct ZobristTable {
   uint64_t hand[4][32]; // [player][card]
   uint64_t trick[32];   // [card] in trick
   uint64_t turn[4];     // [player] to lead/act next
+  uint64_t trump[5];    // [suit] contract
 
   ZobristTable() {
     std::mt19937_64 rng(42);
@@ -24,6 +25,8 @@ struct ZobristTable {
       trick[c] = rng();
     for (int p = 0; p < 4; ++p)
       turn[p] = rng();
+    for (int s = 0; s < 5; ++s)
+      trump[s] = rng();
   }
 };
 
@@ -52,7 +55,6 @@ public:
   }
 
   int solve(const std::array<CardSet, 4> &hands, Suit contract_suit,
-            int contract_amount,
             int contract_player, // 0-3
             const std::vector<std::pair<int, Card>> &current_trick,
             int starter_player, int ns_points, int ew_points);

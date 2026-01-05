@@ -21,7 +21,7 @@ inline int get_max_strength(const std::vector<std::pair<int, Card>> &trick,
 }
 
 int MinimaxSolver::solve(const std::array<CardSet, 4> &hands,
-                         Suit contract_suit, int contract_amount,
+                         Suit contract_suit,
                          int contract_player,
                          const std::vector<std::pair<int, Card>> &current_trick,
                          int starter_player, int ns_points, int ew_points) {
@@ -63,6 +63,11 @@ int MinimaxSolver::solve(const std::array<CardSet, 4> &hands,
   int trick_size = current_trick.size();
   int current_player = (starter_player + trick_size) % 4;
   hash ^= Zobrist.turn[current_player];
+  
+  // Trump hash (allows TT reuse across suits)
+  // Suit enum: 0-3 are suits, 4 is NONE (but solve usually called with valid suit)
+  // Casting to int is safe as long as contract_suit is valid.
+  hash ^= Zobrist.trump[static_cast<int>(contract_suit)];
 
   // Use a slightly wider window at the root if needed, but [0, 252] covers Capot
   // Assuming 0 previous tricks for now in solve() entry point

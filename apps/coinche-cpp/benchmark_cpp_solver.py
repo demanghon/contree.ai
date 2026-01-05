@@ -61,7 +61,7 @@ def run_benchmark(num_random_hands: int = 100):
     # Contract: Hearts, 80, Player 0
     t0 = time.time()
     # Arguments: hands, contract_suit, contract_amount, contract_player, current_trick, starter_player, ns_points, ew_points
-    score = cointree_cpp.solve_game(god_hands, Suit.HEARTS, 80, 0, [], 0, 0, 0)
+    score = cointree_cpp.solve_game(god_hands, Suit.HEARTS, 0, [], 0, 0, 0)
     dt = time.time() - t0
     print(f"God Hand Score: {score}")
     print(f"Time: {dt*1000:.2f} ms")
@@ -79,7 +79,7 @@ def run_benchmark(num_random_hands: int = 100):
         starter = 0
         
         t_start = time.perf_counter()
-        cointree_cpp.solve_game(hands, contract_suit, 80, contract_player, [], starter, 0, 0)
+        cointree_cpp.solve_game(hands, contract_suit, contract_player, [], starter, 0, 0)
         t_end = time.perf_counter()
         
         times.append((t_end - t_start) * 1000)
