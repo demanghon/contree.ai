@@ -2,6 +2,11 @@
 #include "search/minimax.hpp"
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <pybind11/numpy.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace py = pybind11;
 using namespace cointree;
@@ -61,6 +66,65 @@ std::map<Suit, int> solve_all_suits_wrapper(
   return results;
 }
 
+// Batch Solver: List[List[List[Card]]] -> Numpy Array [N, 4]
+// Returns scores for [Hearts, Diamonds, Clubs, Spades] for each hand
+py::array_t<int> solve_batch(std::vector<std::vector<std::vector<Card>>> batch_games,
+                             int contract_player) {
+  int N = batch_games.size();
+  if (N == 0) return py::array_t<int>();
+
+  // 1. Prepare Data in C++ friendly format (Main Thread)
+  // We parsed Python objects into std::vector<std::vector<std::vector<Card>>> automatically by pybind11
+  // Now flatten or just process directly.
+  
+  // We need to construct CardSet for each player for each game.
+  struct GameState {
+    std::array<CardSet, 4> hands;
+  };
+  
+  std::vector<GameState> games(N);
+  for(int i=0; i<N; ++i) {
+    if(batch_games[i].size() != 4) throw std::runtime_error("Each game must have 4 hands");
+    for(int p=0; p<4; ++p) {
+      for(const auto& c : batch_games[i][p]) {
+        games[i].hands[p].add(c);
+      }
+    }
+  }
+
+  // 2. Allocate Result Array
+  auto results = py::array_t<int>(N * 4);
+  py::buffer_info buf = results.request();
+  int* ptr = static_cast<int*>(buf.ptr);
+
+// 3. Parallel Solve
+#ifdef _OPENMP
+  #pragma omp parallel
+#endif
+  {
+    // Thread-Local Solver (Persistent TT per thread logic)
+    MinimaxSolver solver;
+    std::vector<std::pair<int, Card>> empty_trick; 
+    empty_trick.reserve(4);
+
+#ifdef _OPENMP
+    #pragma omp for
+#endif
+    for(int i=0; i<N; ++i) {
+        for(int s=0; s<4; ++s) { // HEARTS, DIAMONDS, CLUBS, SPADES
+            // solve() args: hands, contract_suit, contract_player, current_trick, starter_player, ns_points, ew_points
+            // Assuming clean start: trick empty, starter=0, points=0
+            int score = solver.solve(games[i].hands, (Suit)s, contract_player, empty_trick, 0, 0, 0);
+            ptr[i * 4 + s] = score;
+        }
+    }
+  }
+
+  // Reshape to (N, 4)
+  results.resize({N, 4});
+  return results;
+}
+
 PYBIND11_MODULE(cointree_cpp, m) {
   m.doc() = "High-performance C++ Engine for Coinche";
 
@@ -104,4 +168,9 @@ PYBIND11_MODULE(cointree_cpp, m) {
   m.def("solve_all_suits", &solve_all_suits_wrapper,
         "Solves the game for all 4 suits (HEARTS, DIAMONDS, CLUBS, SPADES). "
         "Returns a dict {Suit: score}.");
+
+  m.def("solve_batch", &solve_batch,
+        "Solves a batch of hands for all 4 suits in parallel. "
+        "Returns a NumPy array of shape (N, 4).",
+        py::arg("batch_games"), py::arg("contract_player") = 0);
 }

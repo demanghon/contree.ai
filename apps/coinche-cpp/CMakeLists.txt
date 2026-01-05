@@ -12,6 +12,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# OpenMP for Parallel Batch Solving
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    message(STATUS "OpenMP Found! Parallel features enabled.")
+else()
+    message(WARNING "OpenMP Not Found! Parallel features will run sequentially.")
+endif()
+
 # Find Python and Pybind11
 find_package(Python 3.8 COMPONENTS Interpreter Development)
 # We assume pybind11 is installed in the python environment
@@ -40,6 +48,9 @@ set(SOURCES bindings.cpp search/minimax.cpp)
 
 # Define the Extension Module
 pybind11_add_module(cointree_cpp ${SOURCES})
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(cointree_cpp PRIVATE OpenMP::OpenMP_CXX)
+endif()
 
 # Include Directories
 target_include_directories(cointree_cpp PRIVATE .)
