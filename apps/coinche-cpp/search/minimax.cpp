@@ -1,5 +1,6 @@
 #include "minimax.hpp"
 #include <algorithm>
+#include <iostream>
 #include <array>
 
 namespace cointree {
@@ -29,6 +30,21 @@ int MinimaxSolver::solve(const std::array<CardSet, 4> &hands,
   mutable_trick.reserve(4);
 
   int contract_team = contract_player % 2;
+
+  // Belote/Rebelote Check: King + Queen of Trump in same hand
+  if (contract_suit != Suit::NONE) {
+    Card king(contract_suit, Rank::KING);
+    Card queen(contract_suit, Rank::QUEEN);
+    for (int p = 0; p < 4; ++p) {
+      if (hands[p].contains(king) && hands[p].contains(queen)) {
+        if (p % 2 == 0)
+          ns_points += 20;
+        else
+          ew_points += 20;
+        break; 
+      }
+    }
+  }
 
   // Calculate Initial Hash
   uint64_t hash = 0;
