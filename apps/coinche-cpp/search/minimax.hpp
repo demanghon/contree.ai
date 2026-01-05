@@ -54,6 +54,20 @@ public:
     }
   }
 
+  /**
+   * Solves the game state using Alpha-Beta pruning.
+   * Returns the maximum score the CONTRACTING TEAM can achieve from this state.
+   *
+   * @param hands           Current cards held by each player [0..3]
+   * @param contract_suit   The Trump suit
+   * @param contract_player Index (0-3) of the player who made the contract.
+   *                        Determines the Attacker (Contract Team) vs Defender.
+   * @param current_trick   Cards played so far in the current trick
+   * @param starter_player  Index (0-3) of the player who started the current trick
+   * @param ns_points       Points already secured by North/South
+   * @param ew_points       Points already secured by East/West
+   * @return                Final score (Trick Points + Bonuses) for the Contracting Team.
+   */
   int solve(const std::array<CardSet, 4> &hands, Suit contract_suit,
             int contract_player, // 0-3
             const std::vector<std::pair<int, Card>> &current_trick,
