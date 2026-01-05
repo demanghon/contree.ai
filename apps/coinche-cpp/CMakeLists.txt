@@ -47,3 +47,9 @@ target_include_directories(cointree_cpp PRIVATE ${PYTHON_INCLUDE_DIRS})
 
 # Install to src/engine for easy import
 install(TARGETS cointree_cpp LIBRARY DESTINATION "${CMAKE_SOURCE_DIR}/src/engine")
+
+# -- Testing --
+enable_testing()
+add_executable(test_solver tests/test_solver.cpp search/minimax.cpp)
+target_include_directories(test_solver PRIVATE .)
+add_test(NAME CapotTest COMMAND test_solver)

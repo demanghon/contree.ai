@@ -49,3 +49,4 @@ dataset/temp_bidding
 dataset/temp_bidding_small
 apps/coinche-engine/.venv
 apps/coinche-cpp/build
+apps/coinche-cpp/cointree_cpp.cpython-311-x86_64-linux-gnu.so

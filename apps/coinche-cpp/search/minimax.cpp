@@ -48,9 +48,10 @@ int MinimaxSolver::solve(const std::array<CardSet, 4> &hands,
   int current_player = (starter_player + trick_size) % 4;
   hash ^= Zobrist.turn[current_player];
 
-  // Use a slightly wider window at the root if needed, but [0, 162] is strict
+  // Use a slightly wider window at the root if needed, but [0, 252] covers Capot
+  // Assuming 0 previous tricks for now in solve() entry point
   return _alpha_beta(mutable_hands, contract_suit, mutable_trick,
-                     starter_player, ns_points, ew_points, -1, 163,
+                     starter_player, ns_points, ew_points, 0, -1, 253,
                      contract_team, hash);
 }
 
@@ -164,11 +165,20 @@ inline int generate_legal_moves(CardSet hand,
 int MinimaxSolver::_alpha_beta(std::array<CardSet, 4> &hands, Suit trump,
                                std::vector<std::pair<int, Card>> &current_trick,
                                int starter_player, int ns_points, int ew_points,
-                               int alpha, int beta, int contract_team,
-                               uint64_t current_hash) {
+                               int ns_tricks, int alpha, int beta,
+                               int contract_team, uint64_t current_hash) {
   // 1. Base Case: Game Over
   if (hands[0].isEmpty() && current_trick.empty()) {
-    return (contract_team == 0) ? ns_points : ew_points;
+    int final_ns = ns_points;
+    int final_ew = ew_points;
+
+    // Capot Check (Assuming 8 tricks game)
+    if (ns_tricks == 8)
+      final_ns += 90;
+    else if (ns_tricks == 0) // EW took all tricks
+      final_ew += 90;
+
+    return (contract_team == 0) ? final_ns : final_ew;
   }
 
   // 2. Transposition Table Probe
@@ -262,15 +272,19 @@ int MinimaxSolver::_alpha_beta(std::array<CardSet, 4> &hands, Suit trump,
       }
       trick_cleared_hash ^= Zobrist.turn[winner_idx]; // New Turn
 
+      int next_ns_tricks = ns_tricks + (winner_idx % 2 == 0 ? 1 : 0);
+
       val = _alpha_beta(hands, trump, empty_trick, winner_idx, n_ns, n_ew,
-                        alpha, beta, contract_team, trick_cleared_hash);
+                        next_ns_tricks, alpha, beta, contract_team,
+                        trick_cleared_hash);
     } else {
       // Next Card within trick
       int next_player = (current_player + 1) % 4;
       next_hash ^= Zobrist.turn[next_player]; // New Turn
 
       val = _alpha_beta(hands, trump, current_trick, starter_player, ns_points,
-                        ew_points, alpha, beta, contract_team, next_hash);
+                        ew_points, ns_tricks, alpha, beta, contract_team,
+                        next_hash);
     }
 
     // Undo

@@ -60,8 +60,9 @@ public:
 private:
   int _alpha_beta(std::array<CardSet, 4> &hands, Suit trump,
                   std::vector<std::pair<int, Card>> &current_trick,
-                  int starter_player, int ns_points, int ew_points, int alpha,
-                  int beta, int contract_team, uint64_t current_hash);
+                  int starter_player, int ns_points, int ew_points,
+                  int ns_tricks, int alpha, int beta, int contract_team,
+                  uint64_t current_hash);
 };
 
 } // namespace cointree
