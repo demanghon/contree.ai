@@ -5,6 +5,212 @@
 
 namespace cointree {
 
+// Rank Constants mapping (0..7) to Game Rank
+// Ranks: 7=0, 8=1, 9=2, 10=3, J=4, Q=5, K=6, A=7
+// Rank Constants mapping (0..7) to Game Rank
+// Ranks: 7=0, 8=1, 9=2, 10=3, J=4, Q=5, K=6, A=7
+static const int RANK_7 = 0;
+static const int RANK_8 = 1;
+static const int RANK_9 = 2;
+static const int RANK_10 = 3;
+static const int RANK_J = 4;
+static const int RANK_Q = 5;
+static const int RANK_K = 6;
+static const int RANK_A = 7;
+
+// Global Constant Arrays
+static const int TRUMP_ORDER[] = {RANK_J, RANK_9, RANK_A, RANK_10, RANK_K, RANK_Q, RANK_8, RANK_7};
+static const int TRUMP_POINTS[] = {20, 14, 11, 10, 4, 3, 0, 0};
+static const int SIDE_ORDER[] = {RANK_A, RANK_10, RANK_K, RANK_Q, RANK_J, RANK_9, RANK_8, RANK_7};
+static const int SIDE_POINTS[] = {11, 10, 4, 3, 2, 0, 0, 0};
+
+// Helper to compute hand potential (Weak Hand Logic)
+int calculate_potential_score(const CardSet& hand, Suit trump) {
+    int score = 0;
+    uint32_t mask = hand.mask;
+    int t_int = static_cast<int>(trump);
+
+    // --- 1. Trump Potential with Munitions ---
+    uint32_t trump_mask = (mask >> (t_int * 8)) & 0xFF;
+    int munitions = __builtin_popcount(trump_mask); 
+    
+    for (int i = 0; i < 8; ++i) {
+        if (munitions <= 0) break; // no card left
+
+        int r = TRUMP_ORDER[i];
+        if (trump_mask & (1 << r)) {
+            score += TRUMP_POINTS[i];
+            munitions--; // we have the master, it pays for itself
+        } else {
+            // Missing card -> One of our lower cards is sacrificed to pay for the hole
+            munitions--; 
+        }
+    }
+
+    // --- 2. Side Suits Potential with Munitions ---
+    for (int s = 0; s < 4; ++s) {
+        if (s == t_int) continue;
+        uint32_t suit_mask = (mask >> (s * 8)) & 0xFF;
+        int s_munitions = __builtin_popcount(suit_mask);
+        
+        for (int i = 0; i < 8; ++i) {
+            if (s_munitions <= 0) break;
+
+            int r = SIDE_ORDER[i];
+            if (suit_mask & (1 << r)) {
+                score += SIDE_POINTS[i];
+                s_munitions--;
+            } else {
+                // Sacrificed
+                s_munitions--;
+            }
+        }
+    }
+
+    // --- 3. BONUS BELOTE ---
+    bool has_k = (trump_mask & (1 << RANK_K)) != 0;
+    bool has_q = (trump_mask & (1 << RANK_Q)) != 0;
+    if (has_k && has_q) score += 20;
+
+    return score;
+}
+
+// Helper: Face Value Fallback
+int compute_face_value(const CardSet& hand, Suit trump) {
+    int points = 0;
+    uint32_t mask = hand.mask;
+    int t_int = static_cast<int>(trump);
+    int shift = t_int * 8;
+
+    // Check Belote
+    bool has_k = (mask & (1 << (shift + RANK_K))) != 0;
+    bool has_q = (mask & (1 << (shift + RANK_Q))) != 0;
+    if (has_k && has_q) {
+        points += 20;
+    }
+
+    // Sum all cards
+    // Iterate bits
+    while (mask) {
+        int id = __builtin_ctz(mask);
+        Card c(id);
+        points += Card::points(c, trump);
+        mask &= ~(1U << id);
+    }
+    return points;
+}
+
+// Helper to check if a suit in hand forms a solid sequence from top
+// Returns true if solid (or void).
+bool is_solid_sequence(uint32_t hand, int suit, const int* rank_order, int len) {
+    uint32_t suit_mask = 0xFF << (suit * 8);
+    uint32_t cards = hand & suit_mask;
+    if (cards == 0) return true; // Void is fine
+
+    int count = __builtin_popcount(cards);
+    int shift = suit * 8;
+    
+    // Check top 'count' ranks
+    for (int i = 0; i < count; ++i) {
+        int r = rank_order[i];
+        if ((cards & (1 << (shift + r))) == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Sub-method 1: Evaluate Weak Hand (Bidding Phase / 8 cards)
+int evaluate_weak_hand(const CardSet& hand, Suit trump) {
+    if (hand.size() == 8) {
+        int potential = calculate_potential_score(hand, trump);
+        if (potential < 40) {
+            return compute_face_value(hand, trump);
+        }
+    }
+    return -1;
+}
+
+// Sub-method 2: Evaluate Capot (Master Hand)
+int evaluate_capot(const CardSet& hand, Suit trump, int current_player, 
+                   int ns_current_points, int ew_current_points, 
+                   int ns_tricks_won) {
+    
+    uint32_t hand_mask = hand.mask;
+    int t_int = static_cast<int>(trump);
+    
+    // 1. Check Trump Sequence (Must have at least 4 trumps and be solid)
+    static const int TRUMP_ORDER[] = {RANK_J, RANK_9, RANK_A, RANK_10, RANK_K, RANK_Q, RANK_8, RANK_7};
+    
+    uint32_t trump_cards_mask = hand_mask & (0xFF << (t_int * 8));
+    int trump_count = __builtin_popcount(trump_cards_mask);
+    
+    if (trump_count < 4) return -1;
+    
+    if (!is_solid_sequence(hand_mask, t_int, TRUMP_ORDER, 8)) return -1;
+
+    // 2. Check Side Suits
+    static const int SIDE_ORDER[] = {RANK_A, RANK_10, RANK_K, RANK_Q, RANK_J, RANK_9, RANK_8, RANK_7};
+    
+    for (int s = 0; s < 4; ++s) {
+        if (s == t_int) continue;
+        if (!is_solid_sequence(hand_mask, s, SIDE_ORDER, 8)) return -1;
+    }
+    
+    // It is a Master Hand! 
+    int tricks_remaining = __builtin_popcount(hand_mask);
+    int tricks_played = 8 - tricks_remaining;
+    
+    bool is_ns = (current_player % 2 == 0);
+    int ew_tricks_won = tricks_played - ns_tricks_won;
+    
+    // Capot Check logic
+    bool capot = false;
+    if (is_ns) {
+        if (ew_tricks_won == 0) capot = true;
+    } else {
+        if (ns_tricks_won == 0) capot = true;
+    }
+    
+    if (!capot) return -1;
+    
+    int score = 252;
+    
+    // Check Belote (K + Q of Trumps) IN current hand
+    uint32_t k_mask = 1 << (t_int * 8 + RANK_K);
+    uint32_t q_mask = 1 << (t_int * 8 + RANK_Q);
+    
+    if ((hand_mask & k_mask) && (hand_mask & q_mask)) {
+        score += 20;
+    }
+    
+    return score;
+}
+
+// 2. Advanced Circuit Breaker: Evaluate Hand Potential (Force Capot & Weak Hands)
+// Returns 252 (or 272 with belote) if hand is guaranteed to win all remaining tricks.
+// Returns score < 40 if Hand is Weak (Fallback Face Value).
+// Returns -1 otherwise (Search Required).
+int evaluate_hand_potential(const std::array<CardSet, 4> &hands, Suit trump, int current_player,
+              int ns_current_points, int ew_current_points,
+              int ns_tricks_won, int contract_team) {
+  
+  // 1. Weak Hand Circuit Breaker (Only valid for full hand start)
+  int weak_score = evaluate_weak_hand(hands[current_player], trump);
+  if (weak_score != -1) {
+      return weak_score;
+  }
+
+  // 2. Capot / Master Hand Circuit Breaker
+  int capot_score = evaluate_capot(hands[current_player], trump, current_player, 
+                                   ns_current_points, ew_current_points, ns_tricks_won);
+  if (capot_score != -1) {
+      return capot_score;
+  }
+  
+  return -1;
+}
+
 // Define Static
 ZobristTable MinimaxSolver::Zobrist;
 
@@ -65,12 +271,8 @@ int MinimaxSolver::solve(const std::array<CardSet, 4> &hands,
   hash ^= Zobrist.turn[current_player];
   
   // Trump hash (allows TT reuse across suits)
-  // Suit enum: 0-3 are suits, 4 is NONE (but solve usually called with valid suit)
-  // Casting to int is safe as long as contract_suit is valid.
   hash ^= Zobrist.trump[static_cast<int>(contract_suit)];
 
-  // Use a slightly wider window at the root if needed, but [0, 252] covers Capot
-  // Assuming 0 previous tricks for now in solve() entry point
   return _alpha_beta(mutable_hands, contract_suit, mutable_trick,
                      starter_player, ns_points, ew_points, 0, -1, 253,
                      contract_team, hash);
@@ -200,6 +402,17 @@ int MinimaxSolver::_alpha_beta(std::array<CardSet, 4> &hands, Suit trump,
       final_ew += 90;
 
     return (contract_team == 0) ? final_ns : final_ew;
+  }
+
+  // 1a. Capot Circuit Breaker (IsCapot / TryClaim optimization)
+  if (current_trick.empty()) {
+     int trick_size = current_trick.size();
+     int current_player = (starter_player + trick_size) % 4; // Should be starter_player
+     
+     int claim_score = evaluate_hand_potential(hands, trump, current_player, ns_points, ew_points, ns_tricks, contract_team);
+     if (claim_score != -1) {
+         return claim_score;
+     }
   }
 
   // 2. Transposition Table Probe

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import List, Tuple
 
 # Add the C++ library path
-sys.path.append(os.path.join(os.path.dirname(__file__), "src", "engine"))
+sys.path.append(os.path.join(os.path.dirname(__file__), "bin"))
 
 try:
     import cointree_cpp

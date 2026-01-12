@@ -5,13 +5,13 @@ import time
 import numpy as np
 
 # Bindings import path
-sys.path.append(os.path.join(os.path.dirname(__file__), "build"))
+sys.path.append(os.path.join(os.path.dirname(__file__), "bin"))
 
 try:
     import cointree_cpp
 except ImportError:
     # Try local build dir if not in path
-    sys.path.append(os.path.join(os.getcwd(), "build"))
+    sys.path.append(os.path.join(os.getcwd(), "bin"))
     import cointree_cpp
 
 from cointree_cpp import Card, Suit, Rank

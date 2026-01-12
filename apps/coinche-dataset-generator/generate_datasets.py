@@ -8,7 +8,28 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 def generate_datasets(bidding_samples, gameplay_samples, bidding_output_dir, gameplay_file, batch_size=1000, pimc_iterations=0, tt_log2=None):
-    import coinche_engine
+    try:
+        import coinche_engine
+    except ImportError:
+        print("Warning: coinche_engine (Rust) not found. Generation phase will fail if data not present.")
+
+    # Import C++ Solver
+    cpp_build_path = os.path.join(os.path.dirname(__file__), "..", "coinche-cpp", "build")
+    sys.path.append(cpp_build_path)
+    try:
+        import cointree_cpp
+    except ImportError:
+        print(f"Error: cointree_cpp not found in {cpp_build_path}. Please build it first.")
+        sys.exit(1)
+
+    # Helper: Convert Bitmask to Card List
+    def mask_to_cards(mask):
+        cards = []
+        for i in range(32):
+            if (mask >> i) & 1:
+                cards.append(cointree_cpp.Card(i))
+        return cards
+
     print(f"Starting data generation (PIMC={pimc_iterations}, TT_LOG2={tt_log2})...")
     
     # --- BIDDING DATA GENERATION (Crash Resilient) ---
@@ -70,7 +91,11 @@ def generate_datasets(bidding_samples, gameplay_samples, bidding_output_dir, gam
             # But generate_bidding_hands returns N samples, so hands array len is N*4.
             # We iterate by SAMPLE index, so we need to slice hands array by i*4.
             
-            for i in range(processed_count, total_samples, batch_size):
+            from tqdm import tqdm
+            total_batches = (total_samples + batch_size - 1) // batch_size
+            start_batch = processed_count // batch_size
+            
+            for i in tqdm(range(processed_count, total_samples, batch_size), initial=start_batch, total=total_batches, desc="Bidding Gen"):
                 batch_end = min(i + batch_size, total_samples)
                 current_batch_size = batch_end - i
                 
@@ -79,16 +104,32 @@ def generate_datasets(bidding_samples, gameplay_samples, bidding_output_dir, gam
                 hands_slice = all_hands[i*4 : batch_end*4]
                 strat_slice = all_strategies[i : batch_end] # already u8
                 
-                # Solve using Rust
-                # Rust expects List[int], numpy array to list
-                # Converting large numpy array to list can be slow. 
-                # Ideally we pass numpy buffer, but PyO3 needs specific setup.
-                # fast conversion:
-                hands_slice_list = hands_slice.tolist()
+                # Prepare batch for C++ Solver
+                # hands_slice contains flattened uint32 bitmasks.
+                # solve_batch expects List[List[List[Card]]] (Batch -> 4 Players -> Cards)
+                
+                # start_solve = time.time() # TQDM handles timing
+                batch_converted = []
+                for b_idx in range(current_batch_size):
+                    # Each game has 4 hands (N, E, S, W)
+                    game_hands = []
+                    base = b_idx * 4
+                    for p in range(4):
+                        mask = int(hands_slice[base + p])
+                        game_hands.append(mask_to_cards(mask))
+                    batch_converted.append(game_hands)
                 
                 try:
-                    # Returns List[List[int]] (scores per sample)
-                    scores_batch = coinche_engine.solve_bidding_batch(hands_slice_list, pimc_iterations, tt_log2)
+                    # Returns Numpy Array [N, 4]
+                    # We usually want list of list for PyArrow or similar handling
+                    scores_np = cointree_cpp.solve_batch(batch_converted, 0)
+                    scores_batch = scores_np.tolist()
+                    
+                    # Log solve speed occasionally
+                    # if i == processed_count:
+                    #      dt = time.time() - start_solve
+                    #      print(f"Batch solve time: {dt:.2f}s for {current_batch_size} hands ({current_batch_size/dt:.1f} Hz)")
+
                 except Exception as e:
                     print(f"Error solving batch {i}: {e}")
                     break
@@ -144,11 +185,10 @@ def generate_datasets(bidding_samples, gameplay_samples, bidding_output_dir, gam
                 with open(state_file, 'w') as f:
                     json.dump({'processed_count': processed_count}, f)
                     
-                # Progress Log
-                if i % (batch_size * 5) == 0:
-                    elapsed = time.time() - start_time
-                    rate = (processed_count - state.get('processed_count', 0) if 'state' in locals() else processed_count) / (elapsed + 0.001)
-                    print(f"Processed {processed_count}/{total_samples} ({processed_count/total_samples*100:.1f}%)")
+                # Progress Log (Handled by TQDM)
+                # if i % (batch_size * 5) == 0:
+                #    elapsed = time.time() - start_time
+                #    ...
 
             total_duration = time.time() - start_time
             print(f"Bidding data generation complete. Processed {total_samples} samples in {total_duration:.2f}s.")

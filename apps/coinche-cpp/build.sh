@@ -14,7 +14,8 @@ cmake ..
 make -j$(nproc)
 
 # Copy the generated shared library to the parent directory (python package root)
-echo "Installing extension..."
-cp cointree_cpp.cpython*.so ..
+echo "Installing extension to bin/..."
+mkdir -p ../bin
+cp cointree_cpp.cpython*.so ../bin/
 
 echo "Build and install complete."
