@@ -176,173 +176,194 @@ def generate_biased_hands(trump: int, strategy: GenStrategy, shape_arg: Optional
 def card_to_id(c: Card) -> int:
     return c.id
 
+def format_hand(cards: List[Card]) -> str:
+    # C++ Enum: HEARTS=0, DIAMONDS=1, CLUBS=2, SPADES=3
+    suit_map = ['♥', '♦', '♣', '♠']
+    rank_map = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'] # 0..7
+    
+    # Group by suit
+    by_suit = {0:[], 1:[], 2:[], 3:[]}
+    for c in cards:
+        by_suit[int(c.suit())].append(int(c.rank()))
+        
+    parts = []
+    for s_idx in [3, 0, 1, 2]: # Spades, Hearts, Diamonds, Clubs order purely cosmetic
+            if by_suit[s_idx]:
+                ranks = sorted(by_suit[s_idx], reverse=True) # A, K ...
+                s_str = "".join([rank_map[r] for r in ranks])
+                parts.append(f"{s_str}{suit_map[s_idx]}")
+    return " ".join(parts)
+
 def main():
-    parser = argparse.ArgumentParser(description="Generate Bidding Dataset")
-    parser.add_argument("--count", type=int, default=1000, help="Number of hands to generate")
-    parser.add_argument("--output", type=str, default="bidding_dataset.parquet", help="Output file")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--count", type=int, default=1000, help="Total number of hands to generate")
+    parser.add_argument("--batch_size", type=int, default=1000, help="Hands per batch")
+    parser.add_argument("--output", type=str, default="bidding_dataset.parquet", help="Final output file")
     parser.add_argument("--pimc", type=int, default=0, help="PIMC iterations (0 = Double Dummy)")
     
     args = parser.parse_args()
     
-    BATCH_SIZE = args.count
-    print(f"Generating {BATCH_SIZE} hands...")
+    TOTAL_COUNT = args.count
+    BATCH_SIZE = args.batch_size
+    OUTPUT_FILE = args.output
     
-    # Strategy Weights
-    # Random=40, Capot=20, Belote=20, Shape=20
-    strategies = []
-    # Weighted choice
-    choices = [GenStrategy.RANDOM, GenStrategy.FORCE_CAPOT, GenStrategy.FORCE_BELOTE, GenStrategy.FORCE_SHAPE]
-    weights = [0.4, 0.2, 0.2, 0.2]
+    # Setup Worker Directories
+    WORK_DIR = "dist/bidding"
+    os.makedirs(WORK_DIR, exist_ok=True)
     
-    shapes_pool = [
-        [5, 2, 1, 0], 
-        [4, 3, 1, 0], 
-        [4, 2, 1, 1], 
-        [3, 3, 2, 0]
-    ]
+    # Calculate number of batches
+    num_batches = (TOTAL_COUNT + BATCH_SIZE - 1) // BATCH_SIZE
     
-    generated_hands_batch = [] # List[List[List[Card]]]
+    print(f"Goal: {TOTAL_COUNT} hands in {num_batches} batches of ~{BATCH_SIZE}.")
     
-    start_time = time.time()
-    
-    for _ in range(BATCH_SIZE):
-        strat = random.choices(choices, weights=weights, k=1)[0]
-        trump = random.randint(0, 3)
+    # Batch Loop
+    for batch_idx in range(num_batches):
+        batch_file = os.path.join(WORK_DIR, f"batch_{batch_idx}.parquet")
         
-        shape = None
-        if strat == GenStrategy.FORCE_SHAPE:
-            shape = random.choice(shapes_pool)
+        if os.path.exists(batch_file):
+            print(f"Batch {batch_idx+1}/{num_batches} already exists. Skipping.")
+            continue
             
-        hands = generate_biased_hands(trump, strat, shape)
-        generated_hands_batch.append(hands)
-        strategies.append(strat.name)
-        
-    print(f"Generation complete. Time: {time.time() - start_time:.2f}s")
-    
-    # Solve using OpenMP (Parallel) with Polling Progress
-    print("Solving hands...")
-    cointree_cpp.reset_stats()
-    cointree_cpp.reset_progress()
-    
-    t0 = time.time()
-    
-    # Shared result container
-    result_container = {}
-    
-    def solve_worker():
-        # This releases GIL internally in C++ usually if configured, 
-        # allowing python main thread to run?
-        # Typically pybind11 modules need `call_guard<py::gil_scoped_release>()` 
-        # or manual release to allow other threads to run.
-        # cointree_cpp bindings.cpp likely DOES NOT release GIL by default unless I added it.
-        # If it holds GIL, my main thread won't run until it finishes.
-        # Checking bindings.cpp... I did NOT add `call_guard`.
-        # So this thread approach will BLOCK the main thread if GIL is held.
-        # However, `solve_batch` is a long running C++ function. 
-        # If I don't release GIL, the progress bar won't update.
-        # BUT, let's assume standard pybind11 might allow it or I might need to fix it.
-        # Actually, without GIL release, this is 100% blocking.
-        # I SHOULD HAVE ADDED call_guard to bindings.cpp.
-        # But let's try. If it blocks, I fix bindings.cpp.
-        res = cointree_cpp.solve_batch(generated_hands_batch, 0)
-        result_container['scores'] = res
-        
-    solver_thread = threading.Thread(target=solve_worker)
-    solver_thread.start()
-    
-    while solver_thread.is_alive():
-        completed = cointree_cpp.get_hands_solved()
-        elapsed = time.time() - t0
-        rate = completed / elapsed if elapsed > 0 else 0
-        remaining_hands = BATCH_SIZE - completed
-        eta = remaining_hands / rate if rate > 0 and remaining_hands > 0 else 0
-        
-        stats = cointree_cpp.get_stats()
-        weak_hits = stats.get('weak_hand_hits', 0)
-        capot_hits = stats.get('capot_hits', 0)
-        total_breaks = weak_hits + capot_hits
-        
-        sys.stdout.write(f"\rResolved: {completed}/{BATCH_SIZE} | Left: {remaining_hands} | Breaks: {total_breaks} (W:{weak_hits} C:{capot_hits}) | ETA: {eta:.1f}s")
-        sys.stdout.flush()
-        time.sleep(0.1)
-        
-    solver_thread.join()
-    
-    # Final Update
-    completed = cointree_cpp.get_hands_solved()
-    stats = cointree_cpp.get_stats()
-    total_breaks = stats.get('weak_hand_hits', 0) + stats.get('capot_hits', 0)
-    sys.stdout.write(f"\rResolved: {completed}/{BATCH_SIZE} | Left: 0 | Breaks: {total_breaks} | Done.          \n")
-    
-    final_scores = result_container['scores']
-    
-    t_solve = time.time() - t0
-    print(f"Solving complete. Time: {t_solve:.2f}s ({BATCH_SIZE/t_solve:.1f} hands/s)")
-    
-    # Save to Parquet
-    print("Saving to Parquet...")
-    
-    # Prepare data for DataFrame
-    # Need South Hand as BitMap (UInt32) for compatibility with Rust/ML
-    south_hands_bitmaps = []
-    for game in generated_hands_batch:
-        p0 = game[0]
-        bitmap = 0
-        for c in p0:
-            bitmap |= (1 << c.id)
-        south_hands_bitmaps.append(bitmap)
-        
-    # Scores: List[float] per row
-    scores_list = final_scores.tolist()
-    
-    # Generate human readable hands
-    def format_hand(cards: List[Card]) -> str:
-        # Map 0..3 to Suits
-        # 0: Spades, 1: Hearts, 2: Clubs, 3: Diamonds
-        suit_map = ['♠', '♥', '♣', '♦']
-        rank_map = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A']
-        
-        # Sort by suit then rank for readability
-        # card.id = suit * 8 + rank
-        sorted_cards = sorted(cards, key=lambda x: x.id)
-        
-        parts = []
-        for c in sorted_cards:
-            s = (c.id // 8)
-            r = (c.id % 8)
-            parts.append(f"{rank_map[r]}{suit_map[s]}")
+        # Determine actual size for this batch
+        current_batch_size = BATCH_SIZE
+        if (batch_idx + 1) * BATCH_SIZE > TOTAL_COUNT:
+            current_batch_size = TOTAL_COUNT - (batch_idx * BATCH_SIZE)
             
-        return " ".join(parts)
+        print(f"Processing Batch {batch_idx+1}/{num_batches} ({current_batch_size} hands)...")
+        
+        # 1. Generate Hands
+        t_gen = time.time()
+        print("  Generating hands...", end="", flush=True)
+        
+        # Strategy Weights
+        strategies = []
+        choices = [GenStrategy.RANDOM, GenStrategy.FORCE_CAPOT, GenStrategy.FORCE_BELOTE, GenStrategy.FORCE_SHAPE]
+        weights = [0.4, 0.2, 0.2, 0.2]
+        shapes_pool = [[5, 2, 1, 0], [4, 3, 1, 0], [4, 2, 1, 1], [3, 3, 2, 0]]
+        
+        generated_hands_batch = []
+        for _ in range(current_batch_size):
+            s = random.choices(choices, weights=weights, k=1)[0]
+            shp = None
+            if s == GenStrategy.FORCE_SHAPE:
+                shp = random.choice(shapes_pool)
+            trump = random.randint(0, 3)
+            hands = generate_biased_hands(trump, s, shp)
+            generated_hands_batch.append(hands)
+            
+        print(f" Done ({time.time() - t_gen:.2f}s)")
+        
+        # 2. Solve Hands
+        print("  Solving...", end="")
+        cointree_cpp.reset_stats()
+        cointree_cpp.reset_progress()
+        
+        t0 = time.time()
+        result_container = {}
+        
+        def solve_worker():
+            try:
+                # GIL released manually in bindings.cpp
+                res = cointree_cpp.solve_batch(generated_hands_batch, 0)
+                result_container['scores'] = res
+            except Exception as e:
+                result_container['error'] = e
 
-    cols = {
-        'hand_south_human': [], 
-        'hand_west_human': [], 
-        'hand_north_human': [], 
-        'hand_east_human': []
-    }
+        solver_thread = threading.Thread(target=solve_worker)
+        solver_thread.start()
+        
+        while solver_thread.is_alive():
+            completed = cointree_cpp.get_hands_solved()
+            elapsed = time.time() - t0
+            rate = completed / elapsed if elapsed > 0 else 0
+            
+            stats = cointree_cpp.get_stats()
+            weak = stats.get('weak_hand_hits', 0)
+            capot = stats.get('capot_hits', 0)
+            
+            # Simple in-line progress for batch
+            sys.stdout.write(f"\r  Solving... {completed}/{current_batch_size} ({(completed/current_batch_size)*100:.0f}%) | Breaks: W:{weak} C:{capot} | Rate: {rate:.1f}/s")
+            sys.stdout.flush()
+            time.sleep(0.1)
+            
+        solver_thread.join()
+        
+        if 'error' in result_container:
+            print(f"\nError in solver: {result_container['error']}")
+            sys.exit(1)
+            
+        final_scores = result_container['scores']
+        print(f"\n  Batch Solved in {time.time() - t0:.2f}s")
+        
+        # 3. Save Batch
+        print("  Saving batch...", end="", flush=True)
+        
+        # Prepare Data
+        south_hands_bitmaps = []
+        hand_south_humans = []
+        hand_west_humans = []
+        hand_north_humans = []
+        hand_east_humans = []
+        
+        for game in generated_hands_batch:
+            # Human Readable
+            hand_south_humans.append(format_hand(game[0]))
+            hand_west_humans.append(format_hand(game[1]))
+            hand_north_humans.append(format_hand(game[2]))
+            hand_east_humans.append(format_hand(game[3]))
+            
+            # Bitmap for South
+            p0 = game[0]
+            bitmap = 0
+            for c in p0:
+                bitmap |= (1 << c.id)
+            south_hands_bitmaps.append(bitmap)
+            
+        scores_list = final_scores.tolist()
+        
+        
+        df = pd.DataFrame({
+            "hand_south": pd.Series(south_hands_bitmaps, dtype="uint32"),
+            "hand_south_human": hand_south_humans,
+            "hand_west_human": hand_west_humans,
+            "hand_north_human": hand_north_humans,
+            "hand_east_human": hand_east_humans,
+            "scores": scores_list
+        })
+        
+        df.to_parquet(batch_file)
+        print(" Done.\n")
+        
+    print("All batches processed. Merging...")
     
-    for game in generated_hands_batch:
-        # p0: South, p1: West, p2: North, p3: East
-        cols['hand_south_human'].append(format_hand(game[0]))
-        cols['hand_west_human'].append(format_hand(game[1]))
-        cols['hand_north_human'].append(format_hand(game[2]))
-        cols['hand_east_human'].append(format_hand(game[3]))
+    # Merge
+    all_files = sorted([os.path.join(WORK_DIR, f) for f in os.listdir(WORK_DIR) if f.endswith(".parquet")])
+    if not all_files:
+        print("No files to merge!")
+        return
 
-    df_data = {
-        'hand_south': south_hands_bitmaps,
-        'scores': scores_list, # List of list
-        'strategy': strategies
-    }
+    # Use pandas concat
+    dfs = []
+    for f in all_files:
+        dfs.append(pd.read_parquet(f))
+        
+    final_df = pd.concat(dfs, ignore_index=True)
     
-    # Add human readable columns
-    df_data.update(cols)
-
-    df = pd.DataFrame(df_data)
-    # Ensure types
-    df['hand_south'] = df['hand_south'].astype('uint32')
+    # Ensure output directory exists
+    output_dir = os.path.dirname(OUTPUT_FILE)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        
+    final_df.to_parquet(OUTPUT_FILE)
     
-    df.to_parquet(args.output)
-    print(f"Saved to {args.output}")
+    print(f"Comparison: Target {TOTAL_COUNT} | Actual {len(final_df)}")
+    print(f"Saved merged dataset to {OUTPUT_FILE}")
+    
+    # Cleanup
+    print("Cleaning up intermediate files...")
+    import shutil
+    shutil.rmtree(WORK_DIR)
+    print("Done.")
 
 if __name__ == "__main__":
     main()

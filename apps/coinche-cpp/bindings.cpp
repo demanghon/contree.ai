@@ -94,7 +94,7 @@ py::array_t<int> solve_batch(std::vector<std::vector<std::vector<Card>>> batch_g
 
   // 2. Allocate Result Array
   // Create result array (Needs GIL)
-  auto result = py::array_t<int>(N * 4);
+  auto result = py::array_t<int>({N, 4});
   py::buffer_info buf = result.request();
   int *ptr = static_cast<int *>(buf.ptr);
 
@@ -124,8 +124,6 @@ py::array_t<int> solve_batch(std::vector<std::vector<std::vector<Card>>> batch_g
   } 
   // GIL re-acquired here upon destruction of 'release'
 
-  // Reshape to (N, 4)
-  result.resize({N, 4});
   return result;
 }
 
