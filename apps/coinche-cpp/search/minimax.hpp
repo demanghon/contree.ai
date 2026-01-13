@@ -11,7 +11,10 @@ namespace cointree {
 // Global Stats API
 long get_stats_weak_hand_hits();
 long get_stats_capot_hits();
+long get_hands_solved();
+void increment_hands_solved();
 void reset_stats();
+void reset_progress();
 
 // 64-bit Zobrist Hash Keys
 struct ZobristTable {

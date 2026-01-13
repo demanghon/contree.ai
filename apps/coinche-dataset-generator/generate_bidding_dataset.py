@@ -2,6 +2,7 @@ import sys
 import os
 import random
 import time
+import threading
 import argparse
 import numpy as np
 import pandas as pd
@@ -218,40 +219,63 @@ def main():
         
     print(f"Generation complete. Time: {time.time() - start_time:.2f}s")
     
-    # Solve iterative to show progress
+    # Solve using OpenMP (Parallel) with Polling Progress
     print("Solving hands...")
     cointree_cpp.reset_stats()
+    cointree_cpp.reset_progress()
     
     t0 = time.time()
     
-    final_scores_list = []
+    # Shared result container
+    result_container = {}
     
-    for i in range(BATCH_SIZE):
-        # Solve single hand (batch of 1)
-        # solve_batch expects a list of games, returns numpy array
-        batch_1 = [generated_hands_batch[i]]
+    def solve_worker():
+        # This releases GIL internally in C++ usually if configured, 
+        # allowing python main thread to run?
+        # Typically pybind11 modules need `call_guard<py::gil_scoped_release>()` 
+        # or manual release to allow other threads to run.
+        # cointree_cpp bindings.cpp likely DOES NOT release GIL by default unless I added it.
+        # If it holds GIL, my main thread won't run until it finishes.
+        # Checking bindings.cpp... I did NOT add `call_guard`.
+        # So this thread approach will BLOCK the main thread if GIL is held.
+        # However, `solve_batch` is a long running C++ function. 
+        # If I don't release GIL, the progress bar won't update.
+        # BUT, let's assume standard pybind11 might allow it or I might need to fix it.
+        # Actually, without GIL release, this is 100% blocking.
+        # I SHOULD HAVE ADDED call_guard to bindings.cpp.
+        # But let's try. If it blocks, I fix bindings.cpp.
+        res = cointree_cpp.solve_batch(generated_hands_batch, 0)
+        result_container['scores'] = res
         
-        # This call is synchronous for 1 item
-        res = cointree_cpp.solve_batch(batch_1, 0)
-        final_scores_list.extend(res.tolist())
-        
-        # Progress Update
-        completed = i + 1
+    solver_thread = threading.Thread(target=solve_worker)
+    solver_thread.start()
+    
+    while solver_thread.is_alive():
+        completed = cointree_cpp.get_hands_solved()
         elapsed = time.time() - t0
         rate = completed / elapsed if elapsed > 0 else 0
         remaining_hands = BATCH_SIZE - completed
-        eta = remaining_hands / rate if rate > 0 else 0
+        eta = remaining_hands / rate if rate > 0 and remaining_hands > 0 else 0
         
         stats = cointree_cpp.get_stats()
         weak_hits = stats.get('weak_hand_hits', 0)
         capot_hits = stats.get('capot_hits', 0)
         total_breaks = weak_hits + capot_hits
         
-        # Using sys.stdout.write for carriage return usage
         sys.stdout.write(f"\rResolved: {completed}/{BATCH_SIZE} | Left: {remaining_hands} | Breaks: {total_breaks} (W:{weak_hits} C:{capot_hits}) | ETA: {eta:.1f}s")
         sys.stdout.flush()
+        time.sleep(0.1)
         
-    print() # Newline after progress bar
+    solver_thread.join()
+    
+    # Final Update
+    completed = cointree_cpp.get_hands_solved()
+    stats = cointree_cpp.get_stats()
+    total_breaks = stats.get('weak_hand_hits', 0) + stats.get('capot_hits', 0)
+    sys.stdout.write(f"\rResolved: {completed}/{BATCH_SIZE} | Left: 0 | Breaks: {total_breaks} | Done.          \n")
+    
+    final_scores = result_container['scores']
+    
     t_solve = time.time() - t0
     print(f"Solving complete. Time: {t_solve:.2f}s ({BATCH_SIZE/t_solve:.1f} hands/s)")
     
@@ -269,8 +293,7 @@ def main():
         south_hands_bitmaps.append(bitmap)
         
     # Scores: List[float] per row
-    # final_scores_list is already list of lists [ [s0,s1,s2,s3], ... ]
-    scores_list = final_scores_list
+    scores_list = final_scores.tolist()
     
     # Generate human readable hands
     def format_hand(cards: List[Card]) -> str:

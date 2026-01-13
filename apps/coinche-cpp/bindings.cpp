@@ -93,36 +93,40 @@ py::array_t<int> solve_batch(std::vector<std::vector<std::vector<Card>>> batch_g
   }
 
   // 2. Allocate Result Array
-  auto results = py::array_t<int>(N * 4);
-  py::buffer_info buf = results.request();
-  int* ptr = static_cast<int*>(buf.ptr);
+  // Create result array (Needs GIL)
+  auto result = py::array_t<int>(N * 4);
+  py::buffer_info buf = result.request();
+  int *ptr = static_cast<int *>(buf.ptr);
 
-// 3. Parallel Solve
-#ifdef _OPENMP
-  #pragma omp parallel
-#endif
+  // Release GIL for the parallel computation
   {
-    // Thread-Local Solver (Persistent TT per thread logic)
-    MinimaxSolver solver;
-    std::vector<std::pair<int, Card>> empty_trick; 
-    empty_trick.reserve(4);
+      py::gil_scoped_release release;
+      
+    #ifdef _OPENMP
+      #pragma omp parallel
+    #endif
+      {
+        MinimaxSolver solver;
+        std::vector<std::pair<int, Card>> empty_trick; 
+        empty_trick.reserve(4);
 
-#ifdef _OPENMP
-    #pragma omp for
-#endif
-    for(int i=0; i<N; ++i) {
-        for(int s=0; s<4; ++s) { // HEARTS, DIAMONDS, CLUBS, SPADES
-            // solve() args: hands, contract_suit, contract_player, current_trick, starter_player, ns_points, ew_points
-            // Assuming clean start: trick empty, starter=0, points=0
-            int score = solver.solve(games[i].hands, (Suit)s, contract_player, empty_trick, 0, 0, 0);
-            ptr[i * 4 + s] = score;
+    #ifdef _OPENMP
+        #pragma omp for
+    #endif
+        for(int i=0; i<N; ++i) {
+            for(int s=0; s<4; ++s) {
+                int score = solver.solve(games[i].hands, (Suit)s, contract_player, empty_trick, 0, 0, 0);
+                ptr[i * 4 + s] = score;
+            }
+            increment_hands_solved();
         }
-    }
-  }
+      }
+  } 
+  // GIL re-acquired here upon destruction of 'release'
 
   // Reshape to (N, 4)
-  results.resize({N, 4});
-  return results;
+  result.resize({N, 4});
+  return result;
 }
 
 PYBIND11_MODULE(cointree_cpp, m) {
@@ -175,6 +179,10 @@ PYBIND11_MODULE(cointree_cpp, m) {
         py::arg("batch_games"), py::arg("contract_player") = 0);
 
   m.def("reset_stats", &reset_stats, "Reset solver statistics.");
+  m.def("reset_progress", &reset_progress, "Reset progress counter.");
+  
+  m.def("get_hands_solved", &get_hands_solved, "Get number of hands solved.");
+  
   m.def("get_stats", []() {
       py::dict d;
       d["weak_hand_hits"] = get_stats_weak_hand_hits();

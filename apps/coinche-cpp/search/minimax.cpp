@@ -145,6 +145,12 @@ void reset_stats() {
     g_stats_capot_hits.store(0);
 }
 
+// Progress Implementation
+std::atomic<long> g_hands_solved(0);
+long get_hands_solved() { return g_hands_solved.load(); }
+void increment_hands_solved() { g_hands_solved++; }
+void reset_progress() { g_hands_solved.store(0); }
+
 // Sub-method 1: Evaluate Weak Hand (Bidding Phase / 8 cards)
 int evaluate_weak_hand(const CardSet& hand, Suit trump) {
     if (hand.size() == 8) {
