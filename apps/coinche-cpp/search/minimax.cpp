@@ -313,6 +313,7 @@ int MinimaxSolver::solve(const std::array<CardSet, 4> &hands,
 }
 
 // Helper to find trick winner
+// Helper to find trick winner
 int get_trick_winner(const std::vector<std::pair<int, Card>> &trick, Suit trump) {
   if (trick.empty()) return -1;
 
@@ -342,19 +343,41 @@ int get_trick_winner(const std::vector<std::pair<int, Card>> &trick, Suit trump)
   return best_player;
 }
 
-// Optimized Move Generation: No Vectors, Stack Only
-// Returns number of moves filled into 'out_moves'
-int generate_legal_moves(CardSet hand,
-                                const std::vector<std::pair<int, Card>> &trick,
-                                Suit trump, Card *out_moves) {
-  uint32_t mask = hand.mask;
-  if (mask == 0)
-    return 0;
+// SUPERIOR_MASKS[0] = No Trump, [1] = Trump
+// Indexed by Rank (0=7 ... 7=A)
+static const uint8_t SUPERIOR_MASKS[2][8] = {
+    // No Trump: A(7)>10(3)>K(6)>Q(5)>J(4)>9(2)>8(1)>7(0)
+    // 7(0): Beaten by 1,2,3,4,5,6,7 -> 0xFE
+    // 8(1): Beaten by 2,3,4,5,6,7 -> 0xFC
+    // 9(2): Beaten by 3,4,5,6,7 (10,J,Q,K,A) -> 0xF8
+    // 10(3): Beaten by 7 (A) -> 0x80
+    // J(4): Beaten by 3,5,6,7 (10,Q,K,A) -> 0xE8
+    // Q(5): Beaten by 3,6,7 (10,K,A) -> 0xC8
+    // K(6): Beaten by 3,7 (10,A) -> 0x88
+    // A(7): Beaten by None -> 0x00
+    {0xFE, 0xFC, 0xF8, 0x80, 0xE8, 0xC8, 0x88, 0x00},
 
-  int count = 0;
+    // Trump: J(4)>9(2)>A(7)>10(3)>K(6)>Q(5)>8(1)>7(0)
+    // 7(0): Beaten by 1,2,3,4,5,6,7 -> 0xFE
+    // 8(1): Beaten by 2,3,4,5,6,7 -> 0xFC
+    // 9(2): Beaten by 4 (J) -> 0x10
+    // 10(3): Beaten by 2,4,7 (9,J,A) -> 0x94
+    // J(4): Beaten by None -> 0x00
+    // Q(5): Beaten by 2,3,4,6,7 (9,10,J,K,A) -> 0xDC
+    // K(6): Beaten by 2,3,4,7 (9,10,J,A) -> 0x9C
+    // A(7): Beaten by 2,4 (9,J) -> 0x14
+    {0xFE, 0xFC, 0x10, 0x94, 0x00, 0xDC, 0x9C, 0x14}
+};
+
+int generate_legal_moves(CardSet hand,
+                         const std::vector<std::pair<int, Card>> &trick,
+                         Suit trump, Card *out_moves) {
+  uint32_t mask = hand.mask;
+  if (mask == 0) return 0;
 
   // 1. Lead: Any card is legal
   if (trick.empty()) {
+    int count = 0;
     while (mask) {
       int id = __builtin_ctz(mask);
       out_moves[count++] = Card(id);
@@ -363,117 +386,133 @@ int generate_legal_moves(CardSet hand,
     return count;
   }
 
-  // 2. Follow Logic
-  Suit lead_suit = trick[0].second.suit();
+  int t_int = static_cast<int>(trump);
+  uint32_t legal_mask = 0;
+  
+  // 2. Analyze Trick
+  Card lead_card = trick[0].second;
+  Suit lead_suit = lead_card.suit();
+  int l_int = static_cast<int>(lead_suit);
 
-  // Create subsets using masks
-  // We can filter the hand mask directly without iterating yet
-  // Actually iterating bits is fast.
+  // Masks per suit
+  uint32_t lead_suit_mask = (mask >> (l_int * 8)) & 0xFF;
+  uint32_t trump_suit_mask = (mask >> (t_int * 8)) & 0xFF;
 
-  // Collect categories
-  Card follow[8];
-  int n_follow = 0;
-  Card trumps[8];
-  int n_trumps = 0;
-  Card any[8];
-  int n_any = 0; // All cards
+  // Can Follow?
+  if (lead_suit_mask != 0) {
+      if (l_int == t_int) {
+          // Trump Lead: Must Overcut if possible
+          // Find highest trump on table
+          int max_rank = -1;
+          for(const auto& p : trick) {
+              if (p.second.suit() == trump) {
+                   // Optimization: We could track max rank directly, but iterating 3 cards is fast.
+                   // We need the *Rank* index for SUPERIOR_MASKS.
+                   // Card::strength logic logic handles the 'value', but we need 'rank index'.
+                   // Actually, we need to compare STRENGTH. SUPERIOR_MASKS is based on Rank Index?
+                   // Yes, [Rank] gives mask of STRONGER ranks.
+                   // So we need to find the card C in trick such that no other card in trick is stronger.
+                   // Then use C.rank() to lookup mask.
+                   // But "Highest Trump On Table" logic:
+                   // Is it strictly the highest rank? Trump ordering J>9>A...
+                   // SUPERIOR_MASKS[1] handles this strength ordering.
+                   // So we just need the Rank of the best trump played.
+                   
+                   // Start with best_trump_rank = -1. Use strength to compare.
+                   // But we need the Rank Index of the best trump.
+                   int r = static_cast<int>(p.second.rank());
+                   if (max_rank == -1) {
+                       max_rank = r;
+                   } else {
+                       // Compare r vs max_rank using TRUMP strength
+                       // We can use Card::strength or just check if 'r' is in SUPERIOR_MASKS[1][max_rank]?
+                       // No, SUPERIOR_MASKS tells us what BEATS max_rank.
+                       // If 'r' bit is set in SUPERIOR_MASKS[1][max_rank], then r > max_rank.
+                       if ((SUPERIOR_MASKS[1][max_rank] >> r) & 1) {
+                           max_rank = r;
+                       }
+                   }
+              }
+          }
+           
+          if (max_rank != -1) {
+               uint8_t higher = lead_suit_mask & SUPERIOR_MASKS[1][max_rank];
+               if (higher != 0) {
+                   legal_mask = (static_cast<uint32_t>(higher) << (l_int * 8));
+               } else {
+                   // Undercut allowed if can't overcut
+                   legal_mask = (static_cast<uint32_t>(lead_suit_mask) << (l_int * 8));
+               }
+          } else {
+               // Should not happen if lead is trump, unless first card?
+               // If trick not empty and lead is trump, max_rank must be set.
+               legal_mask = (static_cast<uint32_t>(lead_suit_mask) << (l_int * 8));
+          }
 
-  uint32_t m = mask;
-  while (m) {
-    int id = __builtin_ctz(m);
-    Card c(id);
-
-    any[n_any++] = c;
-    if (c.suit() == lead_suit)
-      follow[n_follow++] = c;
-    if (c.suit() == trump)
-      trumps[n_trumps++] = c;
-
-    m &= ~(1U << id);
-  }
-
-  // Logic Tree
-  if (n_follow > 0) {
-    if (lead_suit == trump) {
-      // Must play Higher Trump if possible
-      int max_tr = 0;
-      // Re-calculate max strength locally since we don't have get_max_strength visible or confirmed
-       for (const auto& p : trick) {
-           if (p.second.suit() == trump) {
-               int s = Card::strength(p.second, trump);
-               if (s > max_tr) max_tr = s;
-           }
-       }
-
-      // Filter higher
-      int n_higher = 0;
-      for (int i = 0; i < n_follow; ++i) {
-        if (Card::strength(follow[i], trump) > max_tr) {
-          out_moves[n_higher++] = follow[i];
-        }
+      } else {
+          // Standard Follow
+          legal_mask = (static_cast<uint32_t>(lead_suit_mask) << (l_int * 8));
       }
-
-      if (n_higher > 0)
-        return n_higher;
-
-      // Else play any trump
-      for (int i = 0; i < n_follow; ++i)
-        out_moves[i] = follow[i];
-      return n_follow;
-
-    } else {
-      // Just follow suit
-      for (int i = 0; i < n_follow; ++i)
-        out_moves[i] = follow[i];
-      return n_follow;
-    }
-  }
-
-  // Cannot follow
-  // CHECK PARTNER MASTER (La pisse)
-  if (!trick.empty()) {
+  } 
+  else {
+      // Cannot Follow
+      
+      // Check Partner Master
       int current_player = (trick.back().first + 1) % 4;
       int partner = (current_player + 2) % 4;
+      
       if (get_trick_winner(trick, trump) == partner) {
-            // Partner is master: Play ANYTHING
-            for (int i = 0; i < n_any; ++i)
-                out_moves[i] = any[i];
-            return n_any;
+          // Partner Master -> Freedom -> Play Any
+          legal_mask = mask;
+      } else {
+          // Adversary Master -> Must Cut if possible
+          if (trump_suit_mask != 0) {
+              // Have Trumps. Check Overcut.
+              int max_trump_rank = -1;
+              for(const auto& p : trick) {
+                  if (p.second.suit() == trump) {
+                      int r = static_cast<int>(p.second.rank());
+                      if (max_trump_rank == -1) {
+                           max_trump_rank = r;
+                      } else {
+                           if ((SUPERIOR_MASKS[1][max_trump_rank] >> r) & 1) {
+                               max_trump_rank = r;
+                           }
+                      }
+                  }
+              }
+              
+              if (max_trump_rank != -1) {
+                  // Trumps exist on table. Must overcut.
+                  uint8_t higher = trump_suit_mask & SUPERIOR_MASKS[1][max_trump_rank];
+                  if (higher != 0) {
+                      legal_mask = (static_cast<uint32_t>(higher) << (t_int * 8));
+                  } else {
+                      // Mandatory Undercut (since we have trump and can't overcut)
+                      legal_mask = (static_cast<uint32_t>(trump_suit_mask) << (t_int * 8));
+                  }
+              } else {
+                  // No trumps on table yet. Any trump is an overcut (cut).
+                  legal_mask = (static_cast<uint32_t>(trump_suit_mask) << (t_int * 8));
+              }
+          } else {
+              // No Trump, No Follow -> Discard Any
+              legal_mask = mask;
+          }
       }
   }
-
-  if (n_trumps > 0) {
-    // Must trump logic (Strict)
-    int max_tr = 0; 
-    // Calculate max trump strength in trick
-    for (const auto& p : trick) {
-        if (p.second.suit() == trump) {
-            int s = Card::strength(p.second, trump);
-            if (s > max_tr) max_tr = s;
-        }
-    }
-
-    int n_higher = 0;
-    for (int i = 0; i < n_trumps; ++i) {
-      if (Card::strength(trumps[i], trump) > max_tr)
-        out_moves[n_higher++] = trumps[i];
-    }
-
-    if (n_higher > 0)
-      return n_higher;
-
-    // Can't overtrump? Play any trump.
-    for (int i = 0; i < n_trumps; ++i)
-      out_moves[i] = trumps[i];
-    return n_trumps;
+  
+  // Output
+  int count = 0;
+  while (legal_mask) {
+      int id = __builtin_ctz(legal_mask);
+      out_moves[count++] = Card(id);
+      legal_mask &= ~(1U << id);
   }
-
-  // Cannot Follow, Cannot Trump
-  // Any card legal
-  for (int i = 0; i < n_any; ++i)
-    out_moves[i] = any[i];
-  return n_any;
+  return count;
 }
+
+
 
 int MinimaxSolver::_alpha_beta(std::array<CardSet, 4> &hands, Suit trump,
                                std::vector<std::pair<int, Card>> &current_trick,
