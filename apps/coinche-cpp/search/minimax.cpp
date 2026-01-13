@@ -3,6 +3,20 @@
 #include <iostream>
 #include <array>
 
+#include <array>
+#include <atomic>
+
+// Global Stats Implementation
+std::atomic<long> g_stats_weak_hand_hits(0);
+std::atomic<long> g_stats_capot_hits(0);
+
+long get_stats_weak_hand_hits() { return g_stats_weak_hand_hits.load(); }
+long get_stats_capot_hits() { return g_stats_capot_hits.load(); }
+void reset_stats() {
+    g_stats_weak_hand_hits.store(0);
+    g_stats_capot_hits.store(0);
+}
+
 namespace cointree {
 
 // Rank Constants mapping (0..7) to Game Rank
@@ -120,11 +134,23 @@ bool is_solid_sequence(uint32_t hand, int suit, const int* rank_order, int len) 
     return true;
 }
 
+// Global Stats Implementation
+std::atomic<long> g_stats_weak_hand_hits(0);
+std::atomic<long> g_stats_capot_hits(0);
+
+long get_stats_weak_hand_hits() { return g_stats_weak_hand_hits.load(); }
+long get_stats_capot_hits() { return g_stats_capot_hits.load(); }
+void reset_stats() {
+    g_stats_weak_hand_hits.store(0);
+    g_stats_capot_hits.store(0);
+}
+
 // Sub-method 1: Evaluate Weak Hand (Bidding Phase / 8 cards)
 int evaluate_weak_hand(const CardSet& hand, Suit trump) {
     if (hand.size() == 8) {
         int potential = calculate_potential_score(hand, trump);
         if (potential < 40) {
+            g_stats_weak_hand_hits++;
             return compute_face_value(hand, trump);
         }
     }
@@ -184,6 +210,7 @@ int evaluate_capot(const CardSet& hand, Suit trump, int current_player,
         score += 20;
     }
     
+    g_stats_capot_hits++;
     return score;
 }
 
@@ -210,6 +237,7 @@ int evaluate_hand_potential(const std::array<CardSet, 4> &hands, Suit trump, int
   
   return -1;
 }
+
 
 // Define Static
 ZobristTable MinimaxSolver::Zobrist;

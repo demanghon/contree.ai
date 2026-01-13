@@ -173,4 +173,12 @@ PYBIND11_MODULE(cointree_cpp, m) {
         "Solves a batch of hands for all 4 suits in parallel. "
         "Returns a NumPy array of shape (N, 4).",
         py::arg("batch_games"), py::arg("contract_player") = 0);
+
+  m.def("reset_stats", &reset_stats, "Reset solver statistics.");
+  m.def("get_stats", []() {
+      py::dict d;
+      d["weak_hand_hits"] = get_stats_weak_hand_hits();
+      d["capot_hits"] = get_stats_capot_hits();
+      return d;
+  }, "Get solver statistics.");
 }

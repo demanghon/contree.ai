@@ -8,6 +8,11 @@
 
 namespace cointree {
 
+// Global Stats API
+long get_stats_weak_hand_hits();
+long get_stats_capot_hits();
+void reset_stats();
+
 // 64-bit Zobrist Hash Keys
 struct ZobristTable {
   uint64_t hand[4][32]; // [player][card]
