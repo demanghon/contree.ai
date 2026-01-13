@@ -14,7 +14,13 @@ long get_stats_capot_hits();
 long get_hands_solved();
 void increment_hands_solved();
 void reset_stats();
+void reset_stats();
 void reset_progress();
+
+// Helper exposed for testing
+int generate_legal_moves(CardSet hand,
+                         const std::vector<std::pair<int, Card>> &trick,
+                         Suit trump, Card *out_moves);
 
 // 64-bit Zobrist Hash Keys
 struct ZobristTable {

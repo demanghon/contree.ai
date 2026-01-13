@@ -312,9 +312,39 @@ int MinimaxSolver::solve(const std::array<CardSet, 4> &hands,
                      contract_team, hash);
 }
 
+// Helper to find trick winner
+int get_trick_winner(const std::vector<std::pair<int, Card>> &trick, Suit trump) {
+  if (trick.empty()) return -1;
+
+  int best_player = trick[0].first;
+  Card best_card = trick[0].second;
+  Suit lead_suit = best_card.suit();
+
+  for (size_t i = 1; i < trick.size(); ++i) {
+    int p = trick[i].first;
+    Card c = trick[i].second;
+
+    bool best_is_trump = (best_card.suit() == trump);
+    bool c_is_trump = (c.suit() == trump);
+
+    if (c_is_trump && !best_is_trump) {
+      best_card = c; best_player = p;
+    } else if (c_is_trump && best_is_trump) {
+        if (Card::strength(c, trump) > Card::strength(best_card, trump)) {
+            best_card = c; best_player = p;
+        }
+    } else if (!c_is_trump && !best_is_trump) {
+        if (c.suit() == lead_suit && Card::strength(c, trump) > Card::strength(best_card, trump)) {
+            best_card = c; best_player = p;
+        }
+    }
+  }
+  return best_player;
+}
+
 // Optimized Move Generation: No Vectors, Stack Only
 // Returns number of moves filled into 'out_moves'
-inline int generate_legal_moves(CardSet hand,
+int generate_legal_moves(CardSet hand,
                                 const std::vector<std::pair<int, Card>> &trick,
                                 Suit trump, Card *out_moves) {
   uint32_t mask = hand.mask;
@@ -366,7 +396,14 @@ inline int generate_legal_moves(CardSet hand,
   if (n_follow > 0) {
     if (lead_suit == trump) {
       // Must play Higher Trump if possible
-      int max_tr = get_max_strength(trick, trump, trump);
+      int max_tr = 0;
+      // Re-calculate max strength locally since we don't have get_max_strength visible or confirmed
+       for (const auto& p : trick) {
+           if (p.second.suit() == trump) {
+               int s = Card::strength(p.second, trump);
+               if (s > max_tr) max_tr = s;
+           }
+       }
 
       // Filter higher
       int n_higher = 0;
@@ -393,9 +430,28 @@ inline int generate_legal_moves(CardSet hand,
   }
 
   // Cannot follow
+  // CHECK PARTNER MASTER (La pisse)
+  if (!trick.empty()) {
+      int current_player = (trick.back().first + 1) % 4;
+      int partner = (current_player + 2) % 4;
+      if (get_trick_winner(trick, trump) == partner) {
+            // Partner is master: Play ANYTHING
+            for (int i = 0; i < n_any; ++i)
+                out_moves[i] = any[i];
+            return n_any;
+      }
+  }
+
   if (n_trumps > 0) {
     // Must trump logic (Strict)
-    int max_tr = get_max_strength(trick, trump, trump);
+    int max_tr = 0; 
+    // Calculate max trump strength in trick
+    for (const auto& p : trick) {
+        if (p.second.suit() == trump) {
+            int s = Card::strength(p.second, trump);
+            if (s > max_tr) max_tr = s;
+        }
+    }
 
     int n_higher = 0;
     for (int i = 0; i < n_trumps; ++i) {

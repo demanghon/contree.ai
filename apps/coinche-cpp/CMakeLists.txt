@@ -64,3 +64,7 @@ enable_testing()
 add_executable(test_solver tests/test_solver.cpp search/minimax.cpp)
 target_include_directories(test_solver PRIVATE .)
 add_test(NAME CapotTest COMMAND test_solver)
+
+add_executable(test_rules tests/test_rules.cpp search/minimax.cpp)
+target_include_directories(test_rules PRIVATE .)
+add_test(NAME RulesTest COMMAND test_rules)
