@@ -9,13 +9,15 @@
 namespace cointree {
 
 // Global Stats API
+// Global Stats API
 long get_stats_weak_hand_hits();
 long get_stats_capot_hits();
+long get_stats_nodes_explored();
 long get_hands_solved();
 void increment_hands_solved();
 void reset_stats();
-void reset_stats();
 void reset_progress();
+void accumulate_nodes_explored(long n);
 
 // Helper exposed for testing
 int generate_legal_moves(CardSet hand,
@@ -55,8 +57,10 @@ public:
 
   std::vector<TTEntry> tt;
   uint32_t mask; // Size - 1
+  long m_nodes_explored = 0;
 
   MinimaxSolver() {
+    // 2^22 = 4M entries = 64MB.
     // 2^22 = 4M entries = 64MB.
     size_t size = 1 << 22;
     tt.resize(size);
@@ -67,6 +71,8 @@ public:
       e.value = -99999;
     }
   }
+
+  long get_nodes_explored() const { return m_nodes_explored; }
 
   /**
    * Solves the game state using Alpha-Beta pruning.

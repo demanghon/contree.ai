@@ -9,15 +9,22 @@
 // Global Stats Implementation
 std::atomic<long> g_stats_weak_hand_hits(0);
 std::atomic<long> g_stats_capot_hits(0);
+std::atomic<long> g_stats_nodes_explored(0);
+
+namespace cointree {
 
 long get_stats_weak_hand_hits() { return g_stats_weak_hand_hits.load(); }
 long get_stats_capot_hits() { return g_stats_capot_hits.load(); }
+long get_stats_nodes_explored() { return g_stats_nodes_explored.load(); }
 void reset_stats() {
     g_stats_weak_hand_hits.store(0);
     g_stats_capot_hits.store(0);
+    g_stats_nodes_explored.store(0);
 }
 
-namespace cointree {
+void accumulate_nodes_explored(long n) {
+    g_stats_nodes_explored.fetch_add(n, std::memory_order_relaxed);
+}
 
 // Rank Constants mapping (0..7) to Game Rank
 // Ranks: 7=0, 8=1, 9=2, 10=3, J=4, Q=5, K=6, A=7
@@ -134,16 +141,7 @@ bool is_solid_sequence(uint32_t hand, int suit, const int* rank_order, int len) 
     return true;
 }
 
-// Global Stats Implementation
-std::atomic<long> g_stats_weak_hand_hits(0);
-std::atomic<long> g_stats_capot_hits(0);
 
-long get_stats_weak_hand_hits() { return g_stats_weak_hand_hits.load(); }
-long get_stats_capot_hits() { return g_stats_capot_hits.load(); }
-void reset_stats() {
-    g_stats_weak_hand_hits.store(0);
-    g_stats_capot_hits.store(0);
-}
 
 // Progress Implementation
 std::atomic<long> g_hands_solved(0);
@@ -519,6 +517,9 @@ int MinimaxSolver::_alpha_beta(std::array<CardSet, 4> &hands, Suit trump,
                                int starter_player, int ns_points, int ew_points,
                                int ns_tricks, int alpha, int beta,
                                int contract_team, uint64_t current_hash) {
+  // Stats
+  m_nodes_explored++;
+
   // 1. Base Case: Game Over
   if (hands[0].isEmpty() && current_trick.empty()) {
     int final_ns = ns_points;

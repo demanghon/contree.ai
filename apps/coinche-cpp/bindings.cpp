@@ -115,8 +115,13 @@ py::array_t<int> solve_batch(std::vector<std::vector<std::vector<Card>>> batch_g
     #endif
         for(int i=0; i<N; ++i) {
             for(int s=0; s<4; ++s) {
-                int score = solver.solve(games[i].hands, (Suit)s, contract_player, empty_trick, 0, 0, 0);
+                // solve(hands, trump, contract_player, trick_history, starter, ns, ew)
+                // contract_player starts (starter=contract_player).
+                int score = solver.solve(games[i].hands, (Suit)s, contract_player, empty_trick, contract_player, 0, 0);
                 ptr[i * 4 + s] = score;
+                
+                long nodes = solver.get_nodes_explored();
+                accumulate_nodes_explored(nodes);
             }
             increment_hands_solved();
         }
@@ -185,6 +190,7 @@ PYBIND11_MODULE(cointree_cpp, m) {
       py::dict d;
       d["weak_hand_hits"] = get_stats_weak_hand_hits();
       d["capot_hits"] = get_stats_capot_hits();
+      d["nodes_explored"] = get_stats_nodes_explored();
       return d;
   }, "Get solver statistics.");
 }
